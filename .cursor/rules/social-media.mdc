@@ -1,0 +1,51 @@
+---
+description: 
+globs: social/social-posts.md
+alwaysApply: false
+---
+---
+description: Rules for social media posts about Planet Clicker Wars
+globs: **/memory-bank/social-posts.md
+alwaysApply: true
+---
+# Social Media Post Rules
+
+## Description
+Guidelines for creating engaging social media posts about Planet Clicker Wars development
+
+## Applies to
+- **/memory-bank/social-posts.md**
+
+## Rules
+1. Keep posts concise and direct ~350 characters
+2. Include a relevant emoji at the beginning of each post
+3. Highlight specific technical achievements or milestones
+4. End with a brief note about what's coming next
+5. Use present tense for current work, future tense for upcoming features
+6. Include relevant hashtags (#GameDev, #VibeCoding, etc)
+7. Avoid unnecessary adjectives and marketing language
+8. Focus on concrete progress rather than plans
+9. There can be multiple same datetimes, don't fake them.
+10. Give a very small introduction on why this step was done.
+11. Give a very small outro on whats next.
+12. I'm not the one coding, I tell the AI what to code.
+13. Be candid and informal, for example: "i have to make the AI update the rendering engine because its a bit slow"
+14. Each post must have a `<slug>` identifier because I may save images under the same <slug>.png name to complement the post text with an image.
+
+## Format
+```
+## Post #[Number]
+
+🚀 [Main achievement or milestone]. [Brief technical detail]. [Optional interesting challenge]. [What's next].
+
+#GameDev #PlanetClickerWars #IndieGame
+```
+
+## Example
+```
+## Post #1 - May 15, 2023
+
+🚀 Implemented planet generation with simplex noise. Creating realistic terrain with just 441 vertices. Getting 60+ FPS on integrated GPUs. Next up: player spawning mechanics.
+
+#GameDev #PlanetClickerWars #IndieGame
+```

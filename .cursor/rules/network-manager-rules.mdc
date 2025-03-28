@@ -1,0 +1,261 @@
+---
+description: 
+globs: **/src/network/*.js
+alwaysApply: false
+---
+ ---
+description: Rules for network management in Planet Clicker Wars
+globs: **/src/network/*.js,**/*.js
+alwaysApply: true
+---
+# Network Manager Rules
+
+## Description
+Rules for integrating the game with Supabase backend services and managing network state
+
+## Rules
+1. Use a NetworkManager singleton to coordinate all backend services
+2. Implement event-based communication between network and game components
+3. Handle reconnection scenarios transparently to the game
+4. Apply client-side prediction with server reconciliation
+5. Implement graceful degradation for offline play
+6. Use a state machine for connection status tracking
+7. Separate connection management from game state synchronization
+8. Provide debug/logging capabilities for network events
+
+## File Structure
+- **src/network/network-manager.js**: Main coordinator for all network functions
+- **src/network/auth-manager.js**: Handles session persistence and recovery
+- **src/network/player-manager.js**: Manages player assignment and persistence
+- **src/network/interpolation.js**: Position interpolation utilities
+- **src/network/prediction.js**: Client-side prediction utilities
+
+## Example
+```javascript
+/**
+ * @class NetworkManager
+ * @description Main coordinator for all network functionality
+ */
+class NetworkManager {
+    constructor(game) {
+        this.game = game;
+        
+        // Singleton pattern
+        if (NetworkManager.instance) {
+            return NetworkManager.instance;
+        }
+        NetworkManager.instance = this;
+        
+        // Dependencies
+        this.supabaseClient = null;
+        this.authManager = null;
+        this.realtimeManager = null;
+        this.playerManager = null;
+        
+        // State
+        this.connectionState = 'disconnected';
+        this.sessionId = null;
+        this.playerData = null;
+        this.planetId = null;
+        
+        // Event callbacks
+        this.events = {
+            onConnected: [],
+            onDisconnected: [],
+            onPlayersUpdated: [],
+            onPlayerJoined: [],
+            onPlayerLeft: [],
+            onPositionUpdated: []
+        };
+    }
+    
+    async initialize() {
+        // Initialize Supabase client
+        this.supabaseClient = await initSupabaseClient();
+        
+        // Initialize managers
+        this.authManager = new AuthManager(this.supabaseClient);
+        this.playerManager = new PlayerManager(this.supabaseClient);
+        
+        // Try to recover session
+        const session = this.authManager.getExistingSession();
+        if (session) {
+            this.sessionId = session.id;
+            
+            // Try to recover planet assignment
+            const planetData = await this.playerManager.getPlayerPlanet(this.sessionId);
+            if (planetData) {
+                this.planetId = planetData.planet_id;
+                this.playerData = planetData;
+            } else {
+                // Assign to a planet if not already assigned
+                await this._assignToPlanet();
+            }
+        } else {
+            // Create new anonymous session
+            const newSession = await this.authManager.createAnonymousSession();
+            this.sessionId = newSession.id;
+            
+            // Assign to a planet
+            await this._assignToPlanet();
+        }
+        
+        // Initialize realtime connection
+        this.realtimeManager = new RealtimeManager(
+            this.supabaseClient,
+            this.planetId
+        );
+        
+        // Set up event handlers
+        this._setupEventHandlers();
+        
+        // Connect to realtime channel
+        await this._connect();
+    }
+    
+    async _connect() {
+        this.connectionState = 'connecting';
+        
+        try {
+            await this.realtimeManager.connect(this.sessionId, {
+                sessionId: this.sessionId,
+                planetId: this.planetId,
+                color: this.playerData.color,
+                position: this.game.getPlayerPosition(),
+                lastActive: Date.now()
+            });
+            
+            this.connectionState = 'connected';
+            this._triggerEvent('onConnected');
+        } catch (error) {
+            console.error('Connection error:', error);
+            this.connectionState = 'error';
+            
+            // Attempt reconnect with exponential backoff
+            this._scheduleReconnect();
+        }
+    }
+    
+    disconnect() {
+        if (this.realtimeManager) {
+            this.realtimeManager.disconnect();
+        }
+        
+        this.connectionState = 'disconnected';
+        this._triggerEvent('onDisconnected');
+    }
+    
+    updatePosition(position) {
+        if (this.connectionState !== 'connected' || !this.realtimeManager) {
+            return;
+        }
+        
+        this.realtimeManager.updatePosition(position);
+    }
+    
+    // Player position interpolation for other players
+    getInterpolatedPosition(playerId, renderTime) {
+        if (!this.realtimeManager || !this.realtimeManager.positionBuffer[playerId]) {
+            return null;
+        }
+        
+        const buffer = this.realtimeManager.positionBuffer[playerId];
+        
+        // Find positions before and after renderTime
+        let before = null;
+        let after = null;
+        
+        for (let i = 0; i < buffer.length; i++) {
+            if (buffer[i].timestamp <= renderTime) {
+                before = buffer[i];
+            } else {
+                after = buffer[i];
+                break;
+            }
+        }
+        
+        // If we don't have both points, return the closest one
+        if (!before) return after ? after.position : null;
+        if (!after) return before.position;
+        
+        // Interpolate between positions
+        const t = (renderTime - before.timestamp) / (after.timestamp - before.timestamp);
+        return {
+            x: before.position.x + (after.position.x - before.position.x) * t,
+            y: before.position.y + (after.position.y - before.position.y) * t,
+            z: before.position.z + (after.position.z - before.position.z) * t
+        };
+    }
+    
+    async _assignToPlanet() {
+        // Get planet with fewer players or random if equal
+        const planets = await this.playerManager.getPlanetCounts();
+        const planetId = planets.A <= planets.B ? 'A' : 'B';
+        
+        // Assign player to planet in database
+        this.playerData = await this.playerManager.assignPlayerToPlanet(
+            this.sessionId,
+            planetId,
+            this._generateRandomColor()
+        );
+        
+        this.planetId = planetId;
+    }
+    
+    _generateRandomColor() {
+        // Generate pastel color for player
+        return `#${Math.floor(Math.random() * 0x1000000).toString(16).padStart(6, '0')}`;
+    }
+    
+    _setupEventHandlers() {
+        if (!this.realtimeManager) return;
+        
+        this.realtimeManager.onPlayerListUpdate = (players) => {
+            this._triggerEvent('onPlayersUpdated', players);
+        };
+        
+        this.realtimeManager.onPlayerJoin = (key, data) => {
+            this._triggerEvent('onPlayerJoined', key, data);
+        };
+        
+        this.realtimeManager.onPlayerLeave = (key) => {
+            this._triggerEvent('onPlayerLeft', key);
+        };
+        
+        this.realtimeManager.onPositionUpdate = (playerId, position) => {
+            this._triggerEvent('onPositionUpdated', playerId, position);
+        };
+    }
+    
+    _scheduleReconnect() {
+        // Implement exponential backoff logic here
+        const backoffTime = Math.min(1000 * Math.pow(2, this._reconnectAttempts || 0), 30000);
+        this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
+        
+        setTimeout(() => {
+            this._connect();
+        }, backoffTime);
+    }
+    
+    // Event system
+    on(event, callback) {
+        if (this.events[event]) {
+            this.events[event].push(callback);
+        }
+        return this; // For chaining
+    }
+    
+    off(event, callback) {
+        if (this.events[event]) {
+            this.events[event] = this.events[event].filter(cb => cb !== callback);
+        }
+        return this; // For chaining
+    }
+    
+    _triggerEvent(event, ...args) {
+        if (this.events[event]) {
+            this.events[event].forEach(callback => callback(...args));
+        }
+    }
+}
+```

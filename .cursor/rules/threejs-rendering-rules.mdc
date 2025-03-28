@@ -1,0 +1,44 @@
+---
+description: 
+globs: **/src/scenes/*.js,**/src/renderers/*.js
+alwaysApply: false
+---
+
+# Three.js Rendering Rules
+
+## Description
+Rules for Three.js scene setup, rendering, and camera management
+
+## Rules
+1. Always use THREE.WebGLRenderer with antialias enabled
+2. Implement responsive canvas resizing
+3. Use THREE.Clock for consistent animation timing
+4. Optimize materials with appropriate texture settings
+5. Clean up Three.js objects when disposing scenes
+6. Use physically-based rendering (PBR) materials when possible
+
+## References
+- @file ./general-game-rules.md
+
+## Example
+```javascript
+/**
+ * @class SceneRenderer
+ * @description Handles Three.js rendering setup and loop
+ */
+class SceneRenderer {
+    constructor(canvas) {
+        this.renderer = new THREE.WebGLRenderer({
+            canvas,
+            antialias: true
+        });
+        this.clock = new THREE.Clock();
+    }
+
+    resize(width, height) {
+        this.renderer.setSize(width, height);
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+    }
+}
+```

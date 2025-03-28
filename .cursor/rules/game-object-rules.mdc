@@ -1,0 +1,51 @@
+---
+description: 
+globs: **/src/objects/*.js,**/src/components/*.js
+alwaysApply: false
+---
+# Game Object Rules
+
+## Description
+Rules for game objects combining Three.js visuals and Cannon.js physics
+
+## Rules
+1. Each game object should have both visual (Three.js) and physics (Cannon.js) components
+2. Implement update() method for game loop integration
+3. Use composition over inheritance for object behaviors
+4. Include position synchronization between Three.js and Cannon.js
+5. Add dispose() method for cleanup
+6. Use TypeScript interfaces for object properties when possible
+
+## References
+- @file ./threejs-rendering-rules.md
+- @file ./cannonjs-physics-rules.md
+
+## Example
+```javascript
+/**
+ * @class PlayerObject
+ * @description Player entity with visual and physical properties
+ */
+class PlayerObject {
+    constructor() {
+        this.mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial()
+        );
+        this.body = new CANNON.Body({
+            mass: 1,
+            shape: new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5))
+        });
+    }
+
+    update() {
+        this.mesh.position.copy(this.body.position);
+        this.mesh.quaternion.copy(this.body.quaternion);
+    }
+
+    dispose() {
+        this.mesh.geometry.dispose();
+        this.mesh.material.dispose();
+    }
+}
+```

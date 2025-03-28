@@ -1,0 +1,30 @@
+---
+description: 
+globs: **/*.js,**/*.ts
+alwaysApply: false
+---
+Base rules for Three.js and Cannon.js game development applying to all game files
+
+## Rules
+1. All game code should follow ES6+ syntax and modular structure
+2. Use consistent naming: 
+   - Classes: PascalCase (e.g., GameScene)
+   - Variables: camelCase (e.g., playerSpeed)
+   - Constants: UPPER_CASE (e.g., GRAVITY)
+3. Include JSDoc comments for all major functions and classes
+4. Maintain a single game loop using requestAnimationFrame
+5. Keep game state management centralized
+6. Use error handling for WebGL context and physics initialization
+
+## Example
+```javascript
+/**
+ * Main game class handling initialization and game loop
+ */
+class Game {
+    constructor() {
+        this.scene = new THREE.Scene();
+        this.physicsWorld = new CANNON.World();
+    }
+}
+```

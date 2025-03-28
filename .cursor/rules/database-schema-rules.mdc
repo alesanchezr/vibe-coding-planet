@@ -1,0 +1,165 @@
+---
+description: 
+globs: **/db/*.sql,**/migrations/*.sql,**/*.sql
+alwaysApply: false
+---
+ ---
+description: Rules for database schema and SQL functions in Planet Clicker Wars
+globs: **/db/*.sql,**/migrations/*.sql,**/*.sql
+alwaysApply: true
+---
+# Database Schema Rules
+
+## Description
+Rules for implementing the database schema and SQL functions for Planet Clicker Wars using Supabase
+
+## Rules
+1. Use a players table for persistent player data
+2. Implement Row Level Security (RLS) policies for secure data access
+3. Create database functions for common operations
+4. Use triggers for automatic timestamp updates
+5. Implement proper indexing for performance
+6. Keep database schema lean, with only necessary fields
+7. Maintain referential integrity with foreign keys
+8. Use UUIDs for primary keys
+
+## Schema Structure
+
+### Players Table
+```sql
+create table public.players (
+  id uuid primary key default uuid_generate_v4(),
+  session_id text not null unique,
+  planet_id text not null check (planet_id in ('A', 'B')),
+  color text not null,
+  created_at timestamp with time zone default now(),
+  last_active timestamp with time zone default now()
+);
+
+-- Index for planet_id queries
+create index idx_players_planet_id on public.players(planet_id);
+
+-- Enable RLS
+alter table public.players enable row level security;
+
+-- RLS policies
+create policy "Allow public read access" 
+  on public.players 
+  for select 
+  using (true);
+
+create policy "Allow session owner to update" 
+  on public.players 
+  for update 
+  using (auth.uid()::text = session_id);
+
+create policy "Allow insert for new sessions" 
+  on public.players 
+  for insert 
+  using (true);
+```
+
+### Trigger for Last Active
+```sql
+create or replace function public.update_last_active()
+returns trigger as $$
+begin
+  new.last_active = now();
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger update_player_last_active
+  before update on public.players
+  for each row
+  execute function public.update_last_active();
+```
+
+### Functions
+
+#### Get Planet Player Counts
+```sql
+create or replace function public.get_planet_player_counts()
+returns json as $$
+declare
+  result json;
+begin
+  select json_build_object(
+    'A', (select count(*) from public.players where planet_id = 'A'),
+    'B', (select count(*) from public.players where planet_id = 'B')
+  ) into result;
+  
+  return result;
+end;
+$$ language plpgsql security definer;
+```
+
+#### Get Player by Session
+```sql
+create or replace function public.get_player_by_session(p_session_id text)
+returns json as $$
+declare
+  result json;
+begin
+  select row_to_json(p)
+  from public.players p
+  where p.session_id = p_session_id
+  into result;
+  
+  return result;
+end;
+$$ language plpgsql security definer;
+```
+
+#### Assign Player to Planet
+```sql
+create or replace function public.assign_player_to_planet(
+  p_session_id text,
+  p_planet_id text,
+  p_color text
+)
+returns json as $$
+declare
+  player_record public.players;
+begin
+  -- Check if player already exists
+  select * from public.players
+  where session_id = p_session_id
+  into player_record;
+  
+  if player_record.id is not null then
+    -- Update existing player
+    update public.players
+    set 
+      planet_id = p_planet_id,
+      color = p_color,
+      last_active = now()
+    where id = player_record.id
+    returning * into player_record;
+  else
+    -- Create new player
+    insert into public.players (session_id, planet_id, color)
+    values (p_session_id, p_planet_id, p_color)
+    returning * into player_record;
+  end if;
+  
+  return row_to_json(player_record);
+end;
+$$ language plpgsql security definer;
+```
+
+#### Clean Inactive Players
+```sql
+create or replace function public.clean_inactive_players(days_inactive int default 30)
+returns int as $$
+declare
+  deleted_count int;
+begin
+  delete from public.players
+  where last_active < now() - (days_inactive || ' days')::interval
+  returning count(*) into deleted_count;
+  
+  return deleted_count;
+end;
+$$ language plpgsql security definer;
+```

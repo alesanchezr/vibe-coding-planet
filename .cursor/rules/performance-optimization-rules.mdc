@@ -1,0 +1,41 @@
+---
+description: 
+globs: **/*.js,**/*.ts
+alwaysApply: false
+---
+# Performance Optimization Rules
+
+## Description
+Rules for optimizing game performance with Three.js and Cannon.js
+
+## Applies to
+- **/*.js
+- **/*.ts
+
+## Rules
+1. Use BufferGeometry instead of Geometry
+2. Minimize draw calls by combining meshes when possible
+3. Implement object pooling for frequently created/destroyed objects
+4. Use instanced rendering for repeated objects
+5. Limit physics simulation to necessary objects
+6. Add performance monitoring with stats.js
+7. Implement level-of-detail (LOD) for distant objects
+
+## References
+- @file ./general-game-rules.md
+- @file ./threejs-rendering-rules.md
+
+## Example
+```javascript
+/**
+ * @function optimizeMesh
+ * @description Converts geometry to buffer geometry and merges vertices
+ */
+function optimizeMesh(mesh) {
+    const bufferGeometry = new THREE.BufferGeometry()
+        .fromGeometry(mesh.geometry);
+    bufferGeometry.computeVertexNormals();
+    mesh.geometry = bufferGeometry;
+    return mesh;
+}
+```

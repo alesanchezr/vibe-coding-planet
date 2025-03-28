@@ -1,0 +1,43 @@
+---
+description: 
+globs: **/src/physics/*.js,**/src/objects/*Physics.js
+alwaysApply: false
+---
+# Cannon.js Physics Rules
+
+## Description
+Rules for physics simulation using Cannon.js
+
+## Applies to
+- **/src/physics/*.js
+- **/src/objects/*Physics.js
+
+## Rules
+1. Set gravity to -9.82 m/s² on Y-axis unless specified otherwise
+2. Use fixed time step (1/60) for physics updates
+3. Implement collision detection with appropriate materials
+4. Sync Three.js objects with Cannon.js bodies each frame
+5. Use appropriate shape types (Box, Sphere, etc.) for colliders
+6. Clean up physics bodies when removing objects
+
+## References
+- @file ./general-game-rules.md
+
+## Example
+```javascript
+/**
+ * @class PhysicsWorld
+ * @description Manages Cannon.js physics simulation
+ */
+class PhysicsWorld {
+    constructor() {
+        this.world = new CANNON.World();
+        this.world.gravity.set(0, -9.82, 0);
+        this.fixedTimeStep = 1 / 60;
+    }
+
+    update(delta) {
+        this.world.step(this.fixedTimeStep, delta);
+    }
+}
+```

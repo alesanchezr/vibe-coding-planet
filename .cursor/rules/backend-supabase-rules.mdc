@@ -1,0 +1,175 @@
+---
+description: 
+globs: **/src/backend/*.js,src/utils/uuid-generator.js,src/utils/cookie.helper.js,src/utils/throttle.js
+alwaysApply: false
+---
+ ---
+description: Rules for Supabase backend integration in Planet Clicker Wars
+globs: **/src/backend/*.js,**/src/utils/*.js,**/*.js
+alwaysApply: true
+---
+# Backend Supabase Integration Rules
+
+## Description
+Rules for implementing real-time multiplayer features using Supabase in Planet Clicker Wars
+
+## Rules
+1. Use a modular approach with separate files for each backend functionality
+2. Implement a singleton pattern for the Supabase client instance
+3. Use a two-tier approach: Realtime Presence for active players and Database for persistent data
+4. Separate session management from realtime connection logic
+5. Create dedicated managers for player state, position updates, and planet assignment
+6. Use events for communication between backend systems and game components
+7. Implement throttling for network traffic optimization
+8. Handle reconnection gracefully with exponential backoff
+
+## File Structure
+- **src/backend/supabase-client.js**: Singleton for Supabase connection
+- **src/backend/auth-manager.js**: Anonymous authentication and session handling
+- **src/backend/realtime-manager.js**: Channel subscription and presence management
+- **src/backend/player-manager.js**: Player state tracking and persistence
+- **src/backend/position-manager.js**: Position broadcasts, updates, and interpolation
+- **src/utils/uuid-generator.js**: UUID generation for sessions and tracking
+- **src/utils/cookie-helper.js**: Session cookie management
+- **src/utils/throttle.js**: Network update throttling utilities
+
+## Example
+```javascript
+/**
+ * @class RealtimeManager
+ * @description Handles real-time player presence and position updates
+ */
+class RealtimeManager {
+    constructor(supabase, planetId) {
+        this.supabase = supabase;
+        this.planetId = planetId;
+        this.channel = null;
+        this.players = {};
+        this.positionBuffer = {};
+        
+        // Broadcast intervals
+        this.presenceInterval = null;
+        this.positionInterval = null;
+        
+        // Event callbacks
+        this.onPlayerJoin = null;
+        this.onPlayerLeave = null;
+        this.onPositionUpdate = null;
+    }
+    
+    async connect(sessionId, initialState) {
+        // Join planet-specific channel
+        this.channel = this.supabase.channel(`planet:${this.planetId}`, {
+            config: { presence: { key: sessionId } }
+        });
+        
+        // Set up presence handlers
+        this.channel
+            .on('presence', { event: 'sync' }, () => this._handlePresenceSync())
+            .on('presence', { event: 'join' }, (payload) => this._handlePresenceJoin(payload))
+            .on('presence', { event: 'leave' }, (payload) => this._handlePresenceLeave(payload))
+            .on('broadcast', { event: 'position' }, (payload) => this._handlePositionUpdate(payload));
+            
+        // Track own presence with initial state
+        await this.channel.track(initialState);
+        
+        // Subscribe to channel
+        await this.channel.subscribe();
+        
+        // Start update intervals
+        this._startUpdateIntervals(sessionId, initialState);
+    }
+    
+    disconnect() {
+        if (this.channel) {
+            this.channel.unsubscribe();
+            this.channel = null;
+        }
+        
+        clearInterval(this.presenceInterval);
+        clearInterval(this.positionInterval);
+    }
+    
+    updatePosition(position) {
+        if (!this.channel) return;
+        
+        this.channel.broadcast({
+            event: 'position',
+            payload: {
+                position,
+                timestamp: Date.now()
+            }
+        });
+    }
+    
+    // Private methods for handling presence events
+    _handlePresenceSync() {
+        const state = this.channel.presenceState();
+        
+        // Convert presence state to player list
+        this.players = Object.entries(state).reduce((acc, [key, value]) => {
+            acc[key] = value[0]; // Use first presence item for each user
+            return acc;
+        }, {});
+        
+        // Emit player list update event
+        if (this.onPlayerListUpdate) {
+            this.onPlayerListUpdate(Object.values(this.players));
+        }
+    }
+    
+    _handlePresenceJoin(payload) {
+        const { key, newPresence } = payload;
+        this.players[key] = newPresence[0];
+        
+        if (this.onPlayerJoin) {
+            this.onPlayerJoin(key, newPresence[0]);
+        }
+    }
+    
+    _handlePresenceLeave(payload) {
+        const { key } = payload;
+        delete this.players[key];
+        delete this.positionBuffer[key];
+        
+        if (this.onPlayerLeave) {
+            this.onPlayerLeave(key);
+        }
+    }
+    
+    _handlePositionUpdate(payload) {
+        const { sender, payload: data } = payload;
+        
+        // Store update in buffer
+        if (!this.positionBuffer[sender]) {
+            this.positionBuffer[sender] = [];
+        }
+        
+        this.positionBuffer[sender].push({
+            position: data.position,
+            timestamp: data.timestamp
+        });
+        
+        // Limit buffer size
+        if (this.positionBuffer[sender].length > 10) {
+            this.positionBuffer[sender].shift();
+        }
+        
+        if (this.onPositionUpdate) {
+            this.onPositionUpdate(sender, data.position);
+        }
+    }
+    
+    _startUpdateIntervals(sessionId, initialState) {
+        // Low-frequency presence updates (~0.2Hz)
+        this.presenceInterval = setInterval(() => {
+            this.channel.track({
+                ...initialState,
+                lastActive: Date.now()
+            });
+        }, 5000);
+        
+        // High-frequency position updates handled by updatePosition method (~10Hz)
+    }
+}
+```
