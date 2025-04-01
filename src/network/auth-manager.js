@@ -1,5 +1,6 @@
 import { supabase } from './supabase-client.js';
 import { INACTIVE_THRESHOLD } from './network-manager.js';
+import { playerManager } from './player-manager.js';
 
 /**
  * Auth Manager - Handles user authentication and session management
@@ -8,6 +9,7 @@ import { INACTIVE_THRESHOLD } from './network-manager.js';
 class AuthManager {
   constructor() {
     this.currentSession = null;
+    this.playerManager = playerManager;
   }
 
   /**
@@ -194,6 +196,19 @@ class AuthManager {
       console.error("Error destroying session:", error);
       throw error;
     }
+  }
+
+  async updatePlayerPosition(position) {
+    const { user, error } = await supabase.auth.updateUser({
+      data: { 
+        position_x: position.x,
+        position_y: position.y,
+        position_z: position.z
+      }
+    });
+    
+    // Also update in database
+    await this.playerManager.updatePlayerPosition(position);
   }
 }
 

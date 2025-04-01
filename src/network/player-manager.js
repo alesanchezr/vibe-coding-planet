@@ -11,6 +11,7 @@ class PlayerManager {
     this.players = [];
     this.currentPlanet = null;
     this.currentColor = null;
+    this.currentPosition = null;
     this.isInitialized = false;
   }
   
@@ -34,6 +35,7 @@ class PlayerManager {
         // Set the current player to the session player
         this.currentPlanet = session.user.user_metadata.planet_name;
         this.currentColor = session.user.user_metadata.color;
+        this.currentPosition = session.user.user_metadata.position;
       }
 
       this.isInitialized = true;
@@ -97,10 +99,6 @@ class PlayerManager {
       
       console.log(`Assigning ${earthPlayers.length} players to Earth and ${marsPlayers.length} players to Mars`);
       
-      // TODO: Add these players to the game's planet objects
-      // This would typically integrate with your game engine
-      // game.addPlayersToPlanet('earth', earthPlayers);
-      // game.addPlayersToPlanet('mars', marsPlayers);
       
     } catch (error) {
       console.error("Error assigning players to planets:", error);
@@ -165,8 +163,9 @@ class PlayerManager {
    */
   async saveCurrentPlayerToDatabase() {
     try {
-      const playerId = authManager.getCurrentUserId()
+      const playerId = authManager.getCurrentUserId();
       const planetName = this.currentPlanet;
+      const position = this.currentPosition;
       
       if (!playerId || !planetName) {
         throw new Error(`Cannot save player: missing playerId ${playerId} or planetName ${planetName}`);
@@ -176,7 +175,10 @@ class PlayerManager {
         session_id: playerId,
         planet_name: planetName,
         color: this.currentColor,
-        last_active: new Date().toISOString()
+        last_active: new Date().toISOString(),
+        position_x: position ? position.x : null,
+        position_y: position ? position.y : null,
+        position_z: position ? position.z : null,
       };
       console.log("Saving player to database", playerData);
       
@@ -328,14 +330,96 @@ class PlayerManager {
       // Reset current player state
       this.currentPlanet = null;
       this.currentColor = null;
+      this.currentPosition = null;
       
       // Refresh the local player list
       await this.loadPlayers();
       
-      console.log(`Player ${playerId} deleted successfully`);
     } catch (error) {
       console.error("Error deleting player:", error);
       // Don't throw, just log the error
+    }
+  }
+  
+  /**
+   * Create a test player with a fake session ID
+   * @param {string} sessionId - The fake session ID to use
+   * @param {string} planetName - The planet to assign the player to
+   * @param {string} color - The color to assign to the player
+   * @returns {Promise<Object>} The created player data
+   */
+  async createTestPlayer(sessionId, planetName, color) {
+    try {
+      if (!sessionId || !planetName || !color) {
+        throw new Error(`Cannot create test player: missing required data`);
+      }
+      
+      const playerData = {
+        session_id: sessionId,
+        planet_name: planetName,
+        color: color,
+        last_active: new Date().toISOString()
+      };
+      
+      // Use upsert to handle both insert and update cases
+      const { data, error } = await supabase
+        .from('players')
+        .upsert(playerData)
+        .select();
+      
+      if (error) {
+        throw error;
+      }
+      
+      console.log("Test player created:", data[0]);
+      
+      // Refresh the local player list
+      await this.loadPlayers();
+      
+      return data[0];
+    } catch (error) {
+      console.error("Error creating test player:", error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Update the player position in the database
+   * @param {Object} position - The position with x, y, z coordinates
+   * @returns {Promise<Object>} The updated player
+   */
+  async updatePlayerPosition(position) {
+    try {
+      const playerId = authManager.getCurrentUserId();
+      
+      if (!playerId) {
+        throw new Error("Cannot update position: missing playerId");
+      }
+      
+      // Update the current position in memory
+      this.currentPosition = position;
+      
+      // Update position in database
+      const { data, error } = await supabase
+        .from('players')
+        .update({ 
+          position_x: position.x,
+          position_y: position.y,
+          position_z: position.z,
+          last_active: new Date().toISOString()
+        })
+        .eq('session_id', playerId)
+        .select();
+      
+      if (error) {
+        throw error;
+      }
+      
+      console.log("Player position updated in database", position);
+      return data[0];
+    } catch (error) {
+      console.error("Error updating player position:", error);
+      throw error;
     }
   }
 }

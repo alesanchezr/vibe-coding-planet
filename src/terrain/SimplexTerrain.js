@@ -9,10 +9,21 @@ export class SimplexTerrain {
    * Create a new SimplexTerrain instance
    * @constructor
    */
-  constructor() {
+  constructor(seed = 42) {
+    // Use a fixed seed for consistent terrain generation between refreshes
+    this.seed = seed;
+    
+    // We can't directly seed the simplex-noise library, but we can
+    // use consistent offset values based on the seed to achieve similar effect
+    this.seedOffsets = {
+      x: Math.cos(seed) * 10000,
+      y: Math.sin(seed) * 10000,
+      z: Math.tan(seed) * 10000
+    };
+    
     // Create 3D noise function
     this.noise3D = createNoise3D();
-    console.log('SimplexTerrain initialized');
+    console.log(`SimplexTerrain initialized with seed: ${seed}`);
     
     // Test the noise function
     const testValue = this.getNoise(0, 0, 0);
@@ -31,7 +42,12 @@ export class SimplexTerrain {
    * @returns {number} - Noise value between -1 and 1
    */
   getNoise(x, y, z, scale = 1) {
-    return this.noise3D(x * scale, y * scale, z * scale);
+    // Apply seed offsets to coordinates for consistent noise between refreshes
+    const seedX = x * scale + this.seedOffsets.x;
+    const seedY = y * scale + this.seedOffsets.y;
+    const seedZ = z * scale + this.seedOffsets.z;
+    
+    return this.noise3D(seedX, seedY, seedZ);
   }
   
   /**

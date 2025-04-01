@@ -18,7 +18,6 @@ export class SceneRenderer {
     // Set up initial rendering
     this.render();
     
-    console.log('SceneRenderer initialized');
   }
   
   /**
@@ -28,24 +27,16 @@ export class SceneRenderer {
   initScene() {
     this.scene = new THREE.Scene();
     
-    // Basic scene lighting (actual game lighting is managed by LightingSystem)
-    // Add ambient light for basic illumination (step 17)
-    this.ambientLight = new THREE.AmbientLight(0x404040);
-    this.scene.add(this.ambientLight);
-    console.log('Added ambient light with color 0x404040');
-    
-    // Remove point light (now managed by LightingSystem for step 18)
-    // Keep directional lights for development
-    
-    // Add directional light from the front
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-    directionalLight.position.set(0, 0, 50);  // Position in front of camera
-    this.scene.add(directionalLight);
-    
-    // Add directional light from the side for shadows
-    const sideLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    sideLight.position.set(50, 10, 0);  // Position from the side
-    this.scene.add(sideLight);
+    // NOTE: All game lighting is now managed by LightingSystem.
+    // Remove obsolete lights previously here:
+    // this.ambientLight = new THREE.AmbientLight(0x404040);
+    // this.scene.add(this.ambientLight);
+    // const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    // directionalLight.position.set(0, 0, 50);
+    // this.scene.add(directionalLight);
+    // const sideLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    // sideLight.position.set(50, 10, 0);
+    // this.scene.add(sideLight);
   }
   
   /**

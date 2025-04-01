@@ -23,8 +23,16 @@ export class PlanetRotationControls {
     // Rotation properties
     this.radius = planet.radius || 15;
     this.rotationSensitivity = 0.6;
-    this.dampingFactor = 0.92;
+    this.dampingFactor = 0.85;
     this.enableDamping = true;
+    this.maxAngularVelocity = 5.0;
+    
+    // Disable auto-rotation by default to maintain fixed north pole position
+    this.autoRotate = false;
+    this.autoRotateSpeed = 0;
+    
+    // Initialize rockets array
+    this.rockets = [];
     
     // Internal state
     this.isDragging = false;
@@ -38,6 +46,9 @@ export class PlanetRotationControls {
     
     // Initialize event listeners
     this.addEventListeners();
+    
+    // Set initial rotation to ensure north pole is at the top
+    this.resetRotation();
   }
   
   /**
@@ -221,6 +232,15 @@ export class PlanetRotationControls {
         body.wakeUp();
       });
     }
+    
+    // If there are rockets, rotate them with the planet
+    if (this.rockets && this.rockets.length > 0) {
+      this.rockets.forEach(rocket => {
+        if (rocket && typeof rocket.updateWithPlanetRotation === 'function') {
+          rocket.updateWithPlanetRotation(quaternion);
+        }
+      });
+    }
   }
   
   /**
@@ -267,15 +287,22 @@ export class PlanetRotationControls {
     // Apply rotation to planet and associated meshes
     this.applyRotation(this.rotationQuaternion);
     
-    // Update angular velocity for momentum
+    // Update angular velocity for momentum - lower coefficient to reduce momentum (from 60 to 15)
     const deltaTime = Math.max(0.001, (performance.now() - this.lastTime) / 1000);
     
-    // Store angular velocity in camera space (positive values for consistent momentum)
-    this.angularVelocity.set(
-      rotX / deltaTime / this.rotationSensitivity * 60,
-      rotY / deltaTime / this.rotationSensitivity * 60,
-      0
-    );
+    // Calculate new angular velocity
+    const newVelX = rotX / deltaTime / this.rotationSensitivity * 15;
+    const newVelY = rotY / deltaTime / this.rotationSensitivity * 15;
+    
+    // Apply a smoothing filter - blend with previous velocity for smoother transition
+    const smoothFactor = 0.3;
+    this.angularVelocity.x = this.angularVelocity.x * (1 - smoothFactor) + newVelX * smoothFactor;
+    this.angularVelocity.y = this.angularVelocity.y * (1 - smoothFactor) + newVelY * smoothFactor;
+    
+    // Limit maximum angular velocity
+    if (this.angularVelocity.length() > this.maxAngularVelocity) {
+      this.angularVelocity.normalize().multiplyScalar(this.maxAngularVelocity);
+    }
     
     // Update previous mouse position
     this.previousMousePosition.copy(this.currentMousePosition);
@@ -293,9 +320,28 @@ export class PlanetRotationControls {
     // End dragging
     this.isDragging = false;
     
+    // Reduce angular velocity on release for more controlled momentum
+    this.angularVelocity.multiplyScalar(0.5);
+    
     // Remove document-level event listeners
     document.removeEventListener('mousemove', this.onMouseMoveBound, false);
     document.removeEventListener('mouseup', this.onMouseUpBound, false);
+  }
+  
+  /**
+   * Reset drag state - called when controls are initialized or disabled
+   * @public
+   */
+  resetDragState() {
+    if (this.isDragging) {
+      this.isDragging = false;
+      
+      // Also remove any lingering event listeners
+      document.removeEventListener('mousemove', this.onMouseMoveBound, false);
+      document.removeEventListener('mouseup', this.onMouseUpBound, false);
+      document.removeEventListener('touchmove', this.onTouchMoveBound, false);
+      document.removeEventListener('touchend', this.onTouchEndBound, false);
+    }
   }
   
   /**
@@ -405,6 +451,7 @@ export class PlanetRotationControls {
   onTouchEnd(event) {
     if (!this.enabled) return;
     
+    
     // End dragging
     this.isDragging = false;
     
@@ -422,44 +469,88 @@ export class PlanetRotationControls {
   }
   
   /**
-   * Update the controls (call in animation loop)
+   * Reset rotation to the initial state with north pole at the top
+   */
+  resetRotation() {
+    if (this.planet && this.planet.mesh) {
+      // Reset rotation to identity (north pole at top)
+      this.planet.mesh.rotation.set(0, 0, 0);
+      this.planet.mesh.quaternion.set(0, 0, 0, 1);
+      
+      // If there's a water mesh, reset it too
+      if (this.planet.waterMesh) {
+        this.planet.waterMesh.rotation.set(0, 0, 0);
+        this.planet.waterMesh.quaternion.set(0, 0, 0, 1);
+      }
+      
+      // Reset angular velocity
+      this.angularVelocity.set(0, 0, 0);
+    }
+  }
+  
+  /**
+   * Reset all player bodies
+   */
+  resetPlayerBodies() {
+    this.playerBodies = [];
+  }
+  
+  /**
+   * Update the control state
    */
   update() {
-    if (!this.enabled) return;
+    const time = performance.now();
+    const delta = (time - this.lastTime) / 1000; // Convert to seconds
+    this.lastTime = time;
     
-    // Calculate delta time
-    const currentTime = performance.now();
-    const deltaTime = Math.min(0.1, (currentTime - this.lastTime) / 1000); // Cap at 0.1 seconds to prevent jumps
-    this.lastTime = currentTime;
+    // Skip if disabled or time delta is unreasonable
+    if (!this.enabled || delta > 0.2) return;
     
-    // Apply momentum/damping when not dragging
-    if (!this.isDragging && this.enableDamping && this.angularVelocity.lengthSq() > 0.00001) {
-      // Use camera's coordinate system for consistent momentum rotation
-      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    // Apply damping if not dragging and damping is enabled
+    if (!this.isDragging && this.enableDamping) {
+      // Apply stronger damping at higher velocities for quicker deceleration
+      const currentSpeed = this.angularVelocity.length();
+      let dampingMultiplier = 1.0;
       
-      // Create rotation from X and Y angular velocity
-      const rotX = this.angularVelocity.x * deltaTime / 60;
-      const rotY = this.angularVelocity.y * deltaTime / 60;
-      
-      if (Math.abs(rotX) > 0.00001 || Math.abs(rotY) > 0.00001) {
-        // Create rotation quaternions in camera space with same direction as drag
-        const qx = new THREE.Quaternion().setFromAxisAngle(right, rotX);
-        const qy = new THREE.Quaternion().setFromAxisAngle(up, rotY);
-        
-        // Combine rotations
-        this.rotationQuaternion.copy(qy).multiply(qx);
-        
-        // Apply rotation to planet and associated meshes
-        this.applyRotation(this.rotationQuaternion);
-        
-        // Damp the angular velocity
-        const dampFactor = Math.pow(this.dampingFactor, deltaTime * 60);
-        this.angularVelocity.multiplyScalar(dampFactor);
-      } else {
-        // Stop rotation when it's very small
-        this.angularVelocity.set(0, 0, 0);
+      if (currentSpeed > 1.0) {
+        // Progressive damping - higher speeds get damped more aggressively
+        dampingMultiplier = 1.0 + (currentSpeed - 1.0) * 0.2;
       }
+      
+      const effectiveDamping = Math.pow(this.dampingFactor, dampingMultiplier);
+      this.angularVelocity.multiplyScalar(effectiveDamping);
+      
+      // Stop if below threshold
+      if (this.angularVelocity.lengthSq() < 0.00001) {
+        this.angularVelocity.set(0, 0, 0);
+        return;
+      }
+      
+      // Calculate rotation from angular velocity
+      this.rotationAxis.copy(this.angularVelocity).normalize();
+      const angle = this.angularVelocity.length() * delta;
+      
+      this.rotationQuaternion.setFromAxisAngle(
+        this.rotationAxis,
+        angle
+      );
+      
+      // Apply rotation
+      this.applyRotation(this.rotationQuaternion);
+    }
+    
+    // Apply auto-rotation if enabled
+    if (this.autoRotate && !this.isDragging) {
+      const autoRotationAngle = this.autoRotateSpeed * delta;
+      
+      // Auto-rotate around the Y axis
+      this.rotationQuaternion.setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        autoRotationAngle
+      );
+      
+      // Apply rotation
+      this.applyRotation(this.rotationQuaternion);
     }
   }
   

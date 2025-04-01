@@ -1,5 +1,6 @@
 import { authManager } from './auth-manager.js';
 import { playerManager } from './player-manager.js';
+import RealtimeManager from './realtime-manager.js';
 
 /**
  * Threshold for considering a user inactive (5 minutes in milliseconds)
@@ -46,6 +47,9 @@ class NetworkManager {
     // Network settings
     this.interpolationDelay = 100; // ms of delay for smoother interpolation
     
+    // Store the last known authoritative position from the server for each player
+    this.lastServerPositions = {};
+    
     // Connection state
     this.isConnected = false;
     this._reconnectAttempts = 0;
@@ -53,9 +57,11 @@ class NetworkManager {
 
   /**
    * Initialize the network manager and connect to services
+   * @param {Object} options - Initialization options
+   * @param {boolean} [options.subscribeToAllPlanets=false] - Whether to subscribe to all planets
    * @returns {Promise<boolean>} Whether initialization was successful
    */
-  async initialize() {
+  async initialize(options = {}) {
     try {
       console.log('Initializing NetworkManager...');
       
@@ -72,14 +78,26 @@ class NetworkManager {
       // Set up heartbeat to keep session alive
       this._setupHeartbeat();
       
-      this.isInitialized = true;
-      this.isConnected = true;
-      
       // Calculate if the session is active (last activity < 5 min ago)
       const lastActivity = session.user.user_metadata?.last_activity;
       const now = Date.now();
       const isActive = lastActivity && ((now - lastActivity) < INACTIVE_THRESHOLD);
       console.log(now - lastActivity, INACTIVE_THRESHOLD);
+      
+      // Delete player if inactive
+      if(!isActive) playerManager.deletePlayer();
+      
+      // Initialize realtime subscription if player is active and has a planet
+      if (isActive) {
+        if (options.subscribeToAllPlanets) {
+          await this.initializeGlobalRealtimeSubscription();
+        } else if (this.playerManager.currentPlanet) {
+          await this._initializeRealtimeSubscription();
+        }
+      }
+      
+      this.isInitialized = true;
+      this.isConnected = true;
       
       // Trigger event with session object and activity status
       this._triggerEvent('onConnectionStateChanged', { 
@@ -87,8 +105,6 @@ class NetworkManager {
         session: session,
         isActive: isActive
       });
-
-      if(!isActive) playerManager.deletePlayer();
       
       console.log('NetworkManager initialized successfully');
       return true;
@@ -122,6 +138,9 @@ class NetworkManager {
       
       // Join a planet using player manager
       const { planetName, color } = await this.playerManager.joinPlanet();
+      
+      // Initialize realtime subscription now that we have a planet
+      await this._initializeRealtimeSubscription();
       
       // Notify any listeners with active status set to true
       this._triggerEvent('onPlayerJoined', this.authManager.getCurrentUserId(), {
@@ -337,6 +356,12 @@ class NetworkManager {
     try {
       console.log('Destroying session...');
       
+      // Clean up realtime subscription
+      if (this.realtimeManager) {
+        this.realtimeManager.cleanup();
+        this.realtimeManager = null;
+      }
+      
       // First destroy the session in auth manager
       await this.authManager.destroySession();
       
@@ -377,6 +402,135 @@ class NetworkManager {
   _triggerEvent(event, ...args) {
     if (this.events[event]) {
       this.events[event].forEach(callback => callback(...args));
+    }
+  }
+
+  /**
+   * Initialize realtime subscription for player position updates
+   * @param {boolean} [allPlanets=false] - Whether to subscribe to all planets or just the current one
+   * @returns {Promise<boolean>} Whether initialization was successful
+   * @private
+   */
+  async _initializeRealtimeSubscription(allPlanets = false) {
+    try {
+      // Clean up existing subscription if there is one
+      if (this.realtimeManager) {
+        this.realtimeManager.cleanup();
+      }
+      
+      // Create new realtime manager
+      let planetName = null;
+      
+      if (!allPlanets) {
+        // Only subscribe to current planet
+        planetName = this.playerManager.currentPlanet;
+        if (!planetName) {
+          console.warn('Cannot initialize planet-specific subscription: No planet assigned');
+          return false;
+        }
+        console.log(`Initializing realtime subscription for active users on planet ${planetName}`);
+      } else {
+        console.log('Initializing realtime subscription for active users on all planets');
+      }
+      
+      // Create and initialize the realtime manager
+      this.realtimeManager = new RealtimeManager(planetName);
+      
+      // Set up event handlers
+      this.realtimeManager.onPositionUpdate = (playerId, position, playerData, isTestPlayer) => {
+        // Skip updates for current player to avoid feedback loops
+        if (playerId === this.authManager.getCurrentUserId()) {
+          return;
+        }
+        
+        // Get the planet name from the player data
+        const playerPlanet = playerData.planet_name;
+        
+        console.log(`Received position update for ${isTestPlayer ? 'test' : ''} player ${playerId} on planet ${playerPlanet}`);
+
+        // Store the last known authoritative position from the server
+        this.lastServerPositions[playerId] = { ...position };
+        
+        // Trigger position update event for game to handle
+        this._triggerEvent('onPositionUpdated', playerId, position, isTestPlayer, playerPlanet);
+      };
+
+      this.realtimeManager.onPlayerJoined = (playerId, playerData, isTestPlayer) => {
+        // Skip if it's the current player (already handled elsewhere)
+        if (playerId === this.authManager.getCurrentUserId()) {
+          return;
+        }
+
+        // Check if player is already known locally (could happen with reconnects)
+        if (this.playerManager.players.some(p => p.session_id === playerId)) {
+          console.log(`Player ${playerId} joined event received, but player already known.`);
+          // Optionally update existing player data here
+          return;
+        }
+
+        // Add player to local list managed by PlayerManager
+        this.playerManager.players.push(playerData);
+
+        // Log the event
+        console.log(`NetworkManager received player joined: ${isTestPlayer ? 'Test Player' : 'Player'} ${playerId} on ${playerData.planet_name}`);
+
+        // Trigger the NetworkManager's onPlayerJoined event for the game logic
+        this._triggerEvent('onPlayerJoined', playerId, playerData, isTestPlayer);
+      };
+      
+      this.realtimeManager.onSubscriptionError = (error) => {
+        console.error('Realtime subscription error:', error);
+        // Schedule reconnection if needed
+        this._scheduleReconnect();
+      };
+      
+      this.realtimeManager.onSubscriptionEvent = (type, data) => {
+        console.log(`Realtime subscription event: ${type}`, data);
+      };
+      
+      // Enable debug mode in development
+      if (import.meta.env.DEV) {
+        this.realtimeManager.setDebugMode(true);
+      }
+      
+      // Initialize the subscription with current player ID
+      const success = await this.realtimeManager.initialize(
+        this.authManager.getCurrentUserId()
+      );
+      
+      return success;
+    } catch (error) {
+      console.error('Failed to initialize realtime subscription:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Initialize realtime subscription for all planets
+   * Only active users will be included in the subscription
+   * @returns {Promise<boolean>} Whether initialization was successful
+   */
+  async initializeGlobalRealtimeSubscription() {
+    return this._initializeRealtimeSubscription(true);
+  }
+
+  /**
+   * Update the player's position in the database and notify other players
+   * @param {object} position - The position {x, y, z}
+   * @returns {Promise<void>}
+   */
+  async updateCurrentPlayerPosition(position) {
+    try {
+      const playerId = this.authManager.getCurrentUserId();
+      if (!playerId) return;
+      
+      // Update locally first
+      this.updatePlayerPosition(playerId, position);
+      
+      // Update in database via player manager
+      await this.playerManager.updatePlayerPosition(position);
+    } catch (error) {
+      console.error('Error updating current player position:', error);
     }
   }
 }

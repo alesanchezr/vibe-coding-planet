@@ -158,4 +158,10 @@ Biggest wins:
 
 Next up: letting players actually move around on their planets!
 
-#GameDev #PlanetClickerWars #PhysicsEngine #VibeCoding 
+#GameDev #PlanetClickerWars #PhysicsEngine #VibeCoding
+
+## Post #27 - March 28, 2023 <planet-click-detection>
+
+🎯 Got the ray casting system working for player movement! Needed this to let players click anywhere on a planet surface to move there. Had to tell the AI to create a proper detection system with animated markers that highlight exactly where you clicked. The tricky part was avoiding accidental movement - added logic to distinguish between clicks and drags (7px threshold), plus a 300ms timer to ignore long presses. Also fixed a major Supabase issue - we were sending way too many requests during movement. Now only saving destination positions, not every step. Next: calculating movement paths along the planet surface!
+
+#GameDev #PlanetClickerWars #RayCasting #VibeCoding 

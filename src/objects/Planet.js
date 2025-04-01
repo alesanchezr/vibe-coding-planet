@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { GameObject } from './GameObject.js';
 import { SimplexTerrain } from '../terrain/SimplexTerrain.js';
+import { Atmosphere } from './Atmosphere.js';
 
 /**
  * Planet object with visual representation and physics
@@ -23,6 +24,7 @@ export class Planet extends GameObject {
    * @param {string} [options.name="Planet"] - Planet name
    * @param {number} [options.waterRadius=9.9] - Radius of the water sphere (null for no water)
    * @param {string[]} [options.biomes=["plains", "mountains", "lakes"]] - Allowed biome types
+   * @param {Object} [options.biomeColors={}] - Object containing colors for different biomes
    */
   constructor(scene, world, options = {}) {
     super(scene, world);
@@ -35,11 +37,15 @@ export class Planet extends GameObject {
     this.noiseAmplitude = options.noiseAmplitude || 2;
     this.noiseScale = options.noiseScale || 5;
     this.name = options.name || "Planet";
-    this.waterRadius = options.waterRadius || 9.9; // Water level radius (null for no water)
+    this.waterRadius = options.waterRadius === undefined ? (options.radius ? options.radius * 0.99 : 9.9) : options.waterRadius; // Adjusted default based on radius
     this.biomes = options.biomes || ["plains", "mountains", "lakes"];
+    this.biomeColors = options.biomeColors || {}; // Store biome colors
     
-    // Initialize terrain generator
-    this.terrainGenerator = new SimplexTerrain();
+    // Use fixed seed based on planet name for consistent terrain between refreshes
+    const planetSeed = this.name === "earth" ? 123456 : 789012;
+    
+    // Initialize terrain generator with planet-specific seed
+    this.terrainGenerator = new SimplexTerrain(planetSeed);
     
     // Initialize the planet
     this.init();
@@ -53,9 +59,17 @@ export class Planet extends GameObject {
    */
   init() {
     this.createGeometry();
-    this.applyTerrain();
+    
+    if (!this.loadTerrainData()) {
+      this.applyTerrain();
+      this.saveTerrainData();
+    }
+    
     this.createMesh();
     this.createBody();
+    
+    // Create atmosphere after mesh and body
+    this.createAtmosphere();
     
     this.isInitialized = true;
   }
@@ -76,6 +90,161 @@ export class Planet extends GameObject {
   }
   
   /**
+   * Save terrain data to localStorage
+   * @private
+   */
+  saveTerrainData() {
+    try {
+      // Get position data
+      const positionAttribute = this.geometry.getAttribute('position');
+      const positionArray = Array.from(positionAttribute.array);
+      
+      // Create a storage key unique to this planet and its parameters
+      const storageKey = `planet_terrain_${this.name}_${this.radius}_${this.segments}`;
+      
+      // Save to localStorage (convert to JSON string)
+      localStorage.setItem(storageKey, JSON.stringify(positionArray));
+      
+      console.log(`Terrain data saved for "${this.name}"`);
+      return true;
+    } catch (error) {
+      console.error(`Error saving terrain data for "${this.name}":`, error);
+      return false;
+    }
+  }
+  
+  /**
+   * Save color data to localStorage
+   * @private
+   */
+  saveColorData() {
+    try {
+      // Get color data (this will be called after createMesh() has set the colors)
+      const colorAttribute = this.geometry.getAttribute('color');
+      if (!colorAttribute) {
+        console.warn(`No color attribute found for "${this.name}"`);
+        return false;
+      }
+      
+      const colorArray = Array.from(colorAttribute.array);
+      
+      // Create a storage key unique to this planet's colors
+      const storageKey = `planet_colors_${this.name}_${this.radius}_${this.segments}`;
+      
+      // Save to localStorage (convert to JSON string)
+      localStorage.setItem(storageKey, JSON.stringify(colorArray));
+      
+      console.log(`Color data saved for "${this.name}"`);
+      return true;
+    } catch (error) {
+      console.error(`Error saving color data for "${this.name}":`, error);
+      return false;
+    }
+  }
+  
+  /**
+   * Load terrain data from localStorage
+   * @private
+   * @returns {boolean} True if data was loaded successfully
+   */
+  loadTerrainData() {
+    try {
+      // Create a storage key unique to this planet and its parameters
+      const storageKey = `planet_terrain_${this.name}_${this.radius}_${this.segments}`;
+      
+      // Try to get saved data
+      const savedData = localStorage.getItem(storageKey);
+      
+      if (!savedData) {
+        console.log(`No saved terrain found for "${this.name}"`);
+        return false;
+      }
+      
+      // Parse the data back to an array
+      const positionArray = JSON.parse(savedData);
+      
+      // Apply to geometry
+      const positionAttribute = this.geometry.getAttribute('position');
+      
+      // Make sure the arrays are the same length
+      if (positionArray.length !== positionAttribute.array.length) {
+        console.warn(`Saved terrain data doesn't match current geometry (${positionArray.length} vs ${positionAttribute.array.length})`);
+        return false;
+      }
+      
+      // Copy the saved positions back to the geometry
+      for (let i = 0; i < positionArray.length; i++) {
+        positionAttribute.array[i] = positionArray[i];
+      }
+      
+      // Mark the attribute as needing update
+      positionAttribute.needsUpdate = true;
+      
+      // Recompute normals
+      this.geometry.computeVertexNormals();
+      
+      console.log(`Loaded saved terrain for "${this.name}"`);
+      return true;
+    } catch (error) {
+      console.error(`Error loading terrain data for "${this.name}":`, error);
+      return false;
+    }
+  }
+  
+  /**
+   * Load color data from localStorage
+   * @private
+   * @returns {boolean} True if color data was loaded successfully
+   */
+  loadColorData() {
+    try {
+      // Create a storage key unique to this planet's colors
+      const storageKey = `planet_colors_${this.name}_${this.radius}_${this.segments}`;
+      
+      // Try to get saved color data
+      const savedData = localStorage.getItem(storageKey);
+      
+      if (!savedData) {
+        console.log(`No saved color data found for "${this.name}"`);
+        return false;
+      }
+      
+      // Parse the data back to an array
+      const colorArray = JSON.parse(savedData);
+      
+      // Create color attribute if it doesn't exist yet
+      if (!this.geometry.getAttribute('color')) {
+        const colors = new Float32Array(colorArray);
+        const colorAttribute = new THREE.BufferAttribute(colors, 3);
+        this.geometry.setAttribute('color', colorAttribute);
+      } else {
+        // Apply to existing color attribute
+        const colorAttribute = this.geometry.getAttribute('color');
+        
+        // Make sure the arrays are the same length
+        if (colorArray.length !== colorAttribute.array.length) {
+          console.warn(`Saved color data doesn't match current geometry (${colorArray.length} vs ${colorAttribute.array.length})`);
+          return false;
+        }
+        
+        // Copy the saved colors back to the geometry
+        for (let i = 0; i < colorArray.length; i++) {
+          colorAttribute.array[i] = colorArray[i];
+        }
+        
+        // Mark the attribute as needing update
+        colorAttribute.needsUpdate = true;
+      }
+      
+      console.log(`Loaded saved color data for "${this.name}"`);
+      return true;
+    } catch (error) {
+      console.error(`Error loading color data for "${this.name}":`, error);
+      return false;
+    }
+  }
+  
+  /**
    * Apply terrain noise to the geometry
    * @private
    */
@@ -89,131 +258,39 @@ export class Planet extends GameObject {
       this.biomes
     );
     
+    // Recompute normals after applying noise
+    this.geometry.computeVertexNormals();
+    
     console.log(`Applied terrain to "${this.name}" with amplitude ${this.noiseAmplitude}, scale ${this.noiseScale}, and biomes: ${this.biomes.join(', ')}`);
   }
   
   /**
-   * Create the planet mesh with materials based on planet type and regions
+   * Create the planet mesh
    * @private
    */
   createMesh() {
-    // Get the terrain generator to access region data
-    const terrainGenerator = this.terrainGenerator;
-    
-    // Create vertex colors for the geometry based on elevation and regions
-    const positionAttribute = this.geometry.getAttribute('position');
-    const colors = new Float32Array(positionAttribute.count * 3);
-    const colorAttribute = new THREE.BufferAttribute(colors, 3);
-    
-    // Determine color palette based on planet type
-    let beachColor, plainColor, lowlandColor, highlandColor, mountainColor, peakColor;
-    
-    if (this.name === "mars") {
-      // Mars color palette (dirt browns)
-      beachColor = new THREE.Color(0xb39069);      // Light sandy brown
-      plainColor = new THREE.Color(0x8b6d4b);      // Medium earthy brown
-      lowlandColor = new THREE.Color(0x6e583c);    // Mid-brown
-      highlandColor = new THREE.Color(0x5e4a34);   // Dark soil brown
-      mountainColor = new THREE.Color(0x3d2e1d);   // Very dark brown
-      peakColor = new THREE.Color(0xc9b190);       // Light beige for highlights
-    } else {
-      // Earth color palette
-      beachColor = new THREE.Color(0xd6bb74);      // Sandy beach
-      plainColor = new THREE.Color(0x7d9551);      // Plains (light green)
-      lowlandColor = new THREE.Color(0x8a7842);    // Lowland brown
-      highlandColor = new THREE.Color(0x644e2d);   // Highland brown
-      mountainColor = new THREE.Color(0x5c4425);   // Mountain brown
-      peakColor = new THREE.Color(0xffffff);       // Snowy peaks
+    // Apply colors to the geometry if we have biome data (and not loading colors)
+    if (!this.loadColorData()) {
+      this.applyBiomeColors();
     }
     
-    // Reference water color (not used directly)
-    const waterColor = new THREE.Color(0x1a8bb9);  // Ocean blue
-    
-    // Region scale should match what's used in terrain generation
-    const regionScale = this.noiseScale * 0.1;
-    
-    // Set vertex colors based on regions and elevation
-    for (let i = 0; i < positionAttribute.count; i++) {
-      const x = positionAttribute.getX(i);
-      const y = positionAttribute.getY(i);
-      const z = positionAttribute.getZ(i);
-      
-      // Calculate distance from center (normalized between 0-1 for elevation)
-      const distance = Math.sqrt(x * x + y * y + z * z);
-      
-      // Normalize coordinates for sampling
-      const nx = x / distance;
-      const ny = y / distance;
-      const nz = z / distance;
-      
-      // Get region value to determine if this is plains or mountains
-      const regionValue = terrainGenerator.getRegionValue(nx, ny, nz, regionScale);
-      
-      // Normalize elevation based on base radius and noise amplitude
-      const normalizedElevation = (distance - (this.radius * 0.9)) / (this.radius * 0.3);
-      
-      // Select color based on region and elevation
-      let terrainColor = new THREE.Color();
-      
-      if (regionValue < 0.3) {
-        // Plains regions
-        if (normalizedElevation < 0.2) {
-          // Low areas in plains (beaches)
-          terrainColor.copy(beachColor);
-        } else {
-          // Plains (green for Earth, rust for Mars)
-          terrainColor.copy(plainColor);
-        }
-      } else if (regionValue > 0.7) {
-        // Mountain regions
-        if (normalizedElevation < 0.3) {
-          // Low areas in mountains (still use lowland color)
-          terrainColor.copy(lowlandColor);
-        } else if (normalizedElevation < 0.6) {
-          // Highlands in mountains
-          terrainColor.copy(highlandColor);
-        } else {
-          // Peaks in mountains
-          terrainColor.copy(mountainColor);
-          
-          // Add snow/light coloring to highest peaks
-          if (normalizedElevation > 0.8) {
-            terrainColor.lerp(peakColor, (normalizedElevation - 0.8) * 5);
-          }
-        }
-      } else {
-        // Transition zones - blend between plains and mountains
-        if (normalizedElevation < 0.2) {
-          // Low areas in transition (beaches)
-          terrainColor.copy(beachColor);
-        } else if (normalizedElevation < 0.5) {
-          // Middle elevations - blend plain and lowland based on region
-          const blend = (regionValue - 0.3) / 0.4;
-          terrainColor.copy(plainColor).lerp(lowlandColor, blend);
-        } else {
-          // Higher areas - blend lowland and highland based on region
-          const blend = (regionValue - 0.3) / 0.4;
-          terrainColor.copy(lowlandColor).lerp(highlandColor, blend);
-        }
-      }
-      
-      // Set the color in the attribute
-      colorAttribute.setXYZ(i, terrainColor.r, terrainColor.g, terrainColor.b);
-    }
-    
-    // Add the color attribute to the geometry
-    this.geometry.setAttribute('color', colorAttribute);
-    
-    // Create material that uses vertex colors
-    this.material = new THREE.MeshPhongMaterial({
+    // Create a mesh using the geometry
+    const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      shininess: this.name === "mars" ? 10 : 30, // Lower shininess for Mars
-      flatShading: false, // Keep smooth shading for better appearance
+      roughness: 0.85,
+      metalness: 0.0,
+      flatShading: false // Changed to false for smoother lighting, critical bugfix (step 9)
     });
     
-    // Create mesh with the noisy geometry and material
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    this.mesh = new THREE.Mesh(this.geometry, material);
     this.mesh.name = this.name;
+    
+    // Enable shadows
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
+    
+    // Store the radius in userData for path finding and other systems
+    this.mesh.userData.radius = this.radius;
     
     // Position the mesh
     this.mesh.position.copy(this.position);
@@ -221,7 +298,10 @@ export class Planet extends GameObject {
     // Add to scene
     this.scene.add(this.mesh);
     
-    console.log(`Added "${this.name}" mesh to scene with ${this.name === "mars" ? "Mars-like" : "Earth-like"} terrain`);
+    // Save color data (for restoration on reload)
+    this.saveColorData();
+    
+    console.log(`Created mesh for "${this.name}" at position:`, this.position);
   }
   
   /**
@@ -245,6 +325,131 @@ export class Planet extends GameObject {
     this.world.addBody(this.body);
     
     console.log(`Added physics body for "${this.name}"`);
+  }
+  
+  /**
+   * Create the atmosphere for the planet
+   * @private
+   */
+  createAtmosphere() {
+    // Determine atmosphere color based on planet type
+    const atmosphereColor = this.name === 'earth' ? 0x87CEEB : 0xEAA189; // Light blue for Earth, reddish for Mars
+    const atmosphereThickness = this.name === 'earth' ? 0.8 : 0.5; // Thicker for Earth
+    const atmosphereOpacity = this.name === 'earth' ? 0.6 : 0.4; // More opaque for Earth
+
+    this.atmosphere = new Atmosphere({
+        radius: this.radius * 1.15, // Start atmosphere higher above the planet surface (was 1.05)
+        thickness: atmosphereThickness, // Keep thickness the same for now
+        particles: 6970, // Reduced particle count by 30 (was 7000)
+        minParticleSize: 40, // Doubled min size (was 20)
+        maxParticleSize: 80, // Doubled max size (was 40)
+        color: 0xffffff, // Use white color for the clouds
+        opacity: atmosphereOpacity,
+        density: 0.6,
+        scale: 8,
+        speed: 0.01, // Reduced speed for slower cloud movement (was 0.03)
+        // Get light direction from the scene's sun light if available
+        lightDirection: this.scene.getObjectByName('SunLight')?.position.clone().normalize() || new THREE.Vector3(1, 1, 1).normalize(),
+    });
+
+    // Position the atmosphere at the planet's center (relative to the parent mesh)
+    // this.atmosphere.position.copy(this.position); // No longer needed, position is relative to parent (mesh)
+
+    // Add atmosphere directly to the planet mesh instead of the scene
+    if (this.mesh) {
+        this.mesh.add(this.atmosphere);
+    } else {
+        console.warn(`Cannot add atmosphere to ${this.name}: mesh not created yet.`);
+        // Fallback: add to scene (though it won't rotate with planet)
+        this.scene.add(this.atmosphere);
+    }
+
+    console.log(`Created atmosphere for "${this.name}" and added to planet mesh`);
+  }
+  
+  /**
+   * Apply biome-based colors to the geometry vertices
+   * @private
+   */
+  applyBiomeColors() {
+    if (!this.geometry || !this.geometry.attributes || !this.geometry.attributes.position) {
+      console.error(`Cannot apply biome colors: invalid geometry for ${this.name}`);
+      return;
+    }
+
+    const positionAttribute = this.geometry.getAttribute('position');
+    const vertexCount = positionAttribute.count;
+    const colors = new Float32Array(vertexCount * 3); // RGB for each vertex
+
+    // Select the appropriate color palette (now passed in via constructor)
+    const colorsBiome = this.biomeColors;
+    const hasWater = this.waterRadius !== null && colorsBiome.water !== undefined;
+
+    // Use the same region scale as applyTerrain for consistency
+    const regionScale = this.noiseScale * 0.1;
+
+    for (let i = 0; i < vertexCount; i++) {
+      const x = positionAttribute.getX(i);
+      const y = positionAttribute.getY(i);
+      const z = positionAttribute.getZ(i);
+
+      const distance = Math.sqrt(x * x + y * y + z * z);
+      const elevation = distance - this.radius;
+
+      // Normalized coordinates for noise sampling
+      const nx = x / distance;
+      const ny = y / distance;
+      const nz = z / distance;
+
+      let color;
+
+      // Determine biome based on elevation and potentially region noise
+      if (hasWater && distance < this.waterRadius) {
+          // Below water level (only if water exists and color is defined)
+          color = colorsBiome.water;
+      } else {
+          // Above water level or no water
+          const regionValue = this.terrainGenerator.getRegionValue(nx, ny, nz, regionScale);
+          const isMountainBiome = regionValue > 0.7 && this.biomes.includes("mountains");
+
+          if (isMountainBiome) {
+              // Mountains
+              if (elevation > this.noiseAmplitude * 0.6 && colorsBiome.snow) {
+                  color = colorsBiome.snow;
+              } else if (colorsBiome.mountains) {
+                  color = colorsBiome.mountains;
+              }
+          } else {
+              // Plains or transition zones
+              if (colorsBiome.plains) {
+                  color = colorsBiome.plains;
+              }
+          }
+      }
+
+      // Fallback color if biome logic didn't assign one or color is missing
+      if (!color) {
+          color = new THREE.Color(this.color); // Use the base planet color
+      }
+
+      // Set color in the buffer
+      colors[i * 3] = color.r;
+      colors[i * 3 + 1] = color.g;
+      colors[i * 3 + 2] = color.b;
+    }
+
+    // Add or update the color attribute
+    if (!this.geometry.getAttribute('color')) {
+        this.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    } else {
+        this.geometry.getAttribute('color').array = colors;
+        this.geometry.getAttribute('color').needsUpdate = true;
+    }
+
+    console.log(`Applied biome colors to ${this.name} using provided palette`);
+
+    // Save the newly generated color data so it doesn't need regeneration on next load
+    this.saveColorData();
   }
   
   /**
@@ -282,7 +487,7 @@ export class Planet extends GameObject {
    * Called every frame by the game loop
    * @override
    */
-  update() {
+  update(deltaTime) {
     // Update the mesh from the physics body if needed
     if (this.body && this.mesh) {
       // Update the mesh position from the physics body
@@ -293,8 +498,50 @@ export class Planet extends GameObject {
         this.waterMesh.position.copy(this.mesh.position);
       }
       
+      // Update atmosphere animation
+      if (this.atmosphere) {
+        // this.atmosphere.position.copy(this.mesh.position); // No longer needed, inherits position from mesh
+        this.atmosphere.update(deltaTime); // Pass deltaTime for animation
+      }
+      
       // Ensure the matrix is updated for rotation changes
       this.mesh.matrixWorldNeedsUpdate = true;
     }
+  }
+  
+  /**
+   * Dispose of planet resources
+   * @override
+   */
+  dispose() {
+    // Dispose geometry and material
+    if (this.geometry) this.geometry.dispose();
+    if (this.mesh && this.mesh.material) this.mesh.material.dispose();
+    
+    // Remove mesh from scene
+    if (this.mesh) this.scene.remove(this.mesh);
+    
+    // Dispose water mesh if it exists
+    if (this.waterMesh) {
+        if (this.waterMesh.geometry) this.waterMesh.geometry.dispose();
+        if (this.waterMesh.material) this.waterMesh.material.dispose();
+        this.scene.remove(this.waterMesh);
+    }
+
+    // Dispose atmosphere if it exists
+    if (this.atmosphere) {
+        this.atmosphere.dispose();
+        // Remove from parent mesh (or scene if fallback was used)
+        if (this.atmosphere.parent) {
+            this.atmosphere.parent.remove(this.atmosphere);
+        } else {
+             this.scene.remove(this.atmosphere);
+        }
+    }
+
+    // Remove body from physics world
+    if (this.body) this.world.removeBody(this.body);
+
+    console.log(`Disposed resources for planet "${this.name}"`);
   }
 } 

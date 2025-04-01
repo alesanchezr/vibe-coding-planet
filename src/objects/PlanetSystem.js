@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Planet } from './Planet.js';
 import { PlanetRotationControls } from '../controls/PlanetRotationControls.js';
+import { Rocket } from './Rocket.js';
 
 /**
  * Manages the planetary system with two competing planets
@@ -17,13 +18,17 @@ export class PlanetSystem {
     this.world = world;
     this.planets = [];
     this.planetControls = [];
+    this.rockets = [];
     this.playerBodies = {
       earth: [],
       mars: []
     };
     
-    // Initialize planets
+    // Initialize planets with fixed initial rotation
     this.createPlanets();
+    
+    // Add rockets to north poles
+    this.addRockets();
     
     console.log('Planet system initialized');
   }
@@ -84,43 +89,92 @@ export class PlanetSystem {
   }
   
   /**
-   * Create both planets
+   * Reset player bodies for all planet rotation controls.
+   * This is typically called when reloading players.
+   */
+  resetPlayerBodies() {
+    // Clear the stored player bodies in this system
+    Object.keys(this.playerBodies).forEach(planetName => {
+      this.playerBodies[planetName] = [];
+    });
+
+    // Tell each rotation control instance to clear its player bodies
+    this.planetControls.forEach(controls => {
+      if (typeof controls.resetPlayerBodies === 'function') {
+        controls.resetPlayerBodies();
+      } else {
+        // Fallback if method doesn't exist: set to empty array
+        const planetName = controls.planet?.name;
+        if (planetName && this.playerBodies[planetName]) {
+            controls.setPlayerBodies(this.playerBodies[planetName]); // Set to empty array
+        }
+      }
+    });
+    console.log('Reset player bodies for all planet controls.');
+  }
+  
+  /**
+   * Create both planets with consistent initial rotation
    * @private
    */
   createPlanets() {
     // Calculate 69% more segments for much smoother surface (20 -> 34)
-    // First increase: 20 * 1.3 = 26
-    // Second increase: 26 * 1.3 = 34 (rounded)
     const increasedSegments = Math.round(Math.round(20 * 1.3) * 1.3);
     
-    // Water sphere parameters
-    const waterRadius = 14.85; // Changed from 9.9 to 14.85 (50% larger)
-    
+    // New radius (30% smaller than 21)
+    const newRadius = 15; 
+    // New water sphere radius (scaled proportionally)
+    const waterRadius = 14.85; // Simplified: 15 * (14.85 / 15)
+    // New planet positions (separation = 2 * radius)
+    const planetSeparation = 30;
+
+    // --- Define Biome Colors ---
+    const earthColors = {
+      water: new THREE.Color(0x1a8bb9),   // Blue for water/lakes
+      plains: new THREE.Color(0x98bf6b), // Green for plains
+      mountains: new THREE.Color(0xaaaaaa), // Gray for mountains
+      snow: new THREE.Color(0xffffff)      // White for snow caps
+    };
+
+    const marsColors = {
+      // No water on Mars
+      plains: new THREE.Color(0xD87F57),    // Dusty orange/light reddish-brown
+      mountains: new THREE.Color(0x8B4513), // Darker, rockier reddish-brown
+      snow: new THREE.Color(0xFFCCAA)       // Very light rusty/pinkish for high altitude/ice
+    };
+    // --- End Biome Colors ---
+
     // Create first planet (Earth)
     const earth = new Planet(this.scene, this.world, {
-      radius: 15, // Changed from 10 to 15 (50% larger)
+      radius: newRadius,
       segments: increasedSegments,
-      position: new THREE.Vector3(-30, 0, 0), // Increased from -20 to -30 (50% more separation)
-      color: 0x888888, // Gray as specified in step 16
-      noiseAmplitude: 0.8, // Reduced from 1.2 for less extreme terrain
-      noiseScale: 8,    // Increased for more detailed, smaller features
+      position: new THREE.Vector3(-planetSeparation, 0, 0), // Position left
+      color: 0x888888, // Base color (used as fallback)
+      noiseAmplitude: 0.8, 
+      noiseScale: 8,    
       name: "earth",
-      waterRadius: waterRadius, // Pass water radius for proper terrain generation
-      biomes: ["plains", "mountains", "lakes"] // Earth has all biomes
+      waterRadius: waterRadius, 
+      biomes: ["plains", "mountains", "lakes"], 
+      biomeColors: earthColors // Pass Earth's biome colors
     });
     
-    // Create second planet (Mars) with reddish color and no water
+    // Create second planet (Mars)
     const mars = new Planet(this.scene, this.world, {
-      radius: 15, // Changed from 10 to 15 (50% larger)
+      radius: newRadius,
       segments: increasedSegments,
-      position: new THREE.Vector3(30, 0, 0), // Increased from 20 to 30 (50% more separation)
-      color: 0xff8e5e, // Changed to earthy brown color
-      noiseAmplitude: 0.7, // Even lower amplitude for Mars
+      position: new THREE.Vector3(planetSeparation, 0, 0), // Position right
+      color: 0xff8e5e, // Base color (used as fallback)
+      noiseAmplitude: 0.7, 
       noiseScale: 8,
       name: "mars",
-      waterRadius: null, // No water for Mars
-      biomes: ["plains", "mountains"] // Mars only has plains and mountains, no lakes
+      waterRadius: null, 
+      biomes: ["plains", "mountains"], 
+      biomeColors: marsColors // Pass Mars' biome colors
     });
+    
+    // Set fixed initial rotation
+    earth.mesh.rotation.set(0, 0, 0);
+    mars.mesh.rotation.set(0, 0, 0);
     
     // Add planets to the array
     this.planets.push(earth);
@@ -132,7 +186,7 @@ export class PlanetSystem {
     // Add rotation controls to both planets
     this.planets.forEach(planet => this.addRotationControls(planet));
     
-    console.log('Both planets created with appropriate materials and positions');
+    console.log('Both planets created with consistent initial rotation');
   }
   
   /**
@@ -197,11 +251,43 @@ export class PlanetSystem {
   /**
    * Update all planets
    */
-  update() {
-    this.planets.forEach(planet => planet.update());
+  update(deltaTime) {
+    // Update planets
+    this.planets.forEach(planet => planet.update(deltaTime));
     
     // Update rotation controls for each planet
     this.planetControls.forEach(controls => controls.update());
+    
+    // Initial render only - position rockets correctly once
+    if (!this._rocketPositionsInitialized) {
+      this.updateRocketPositions();
+      this._rocketPositionsInitialized = true;
+    }
+  }
+  
+  /**
+   * Ensure rockets are correctly positioned relative to their planets
+   * Only needed for initial positioning - after that,
+   * rockets are updated by PlanetRotationControls
+   */
+  updateRocketPositions() {
+    console.log('Initializing rocket positions');
+    
+    // Make sure each rocket is associated with a planet control
+    this.rockets.forEach(rocket => {
+      // Find which planet control this rocket belongs to
+      const controls = this.planetControls.find(control => 
+        control.rockets && control.rockets.includes(rocket)
+      );
+      
+      if (controls) {
+        // Get planet's current rotation
+        const planetQuaternion = controls.planet.mesh.quaternion.clone();
+        
+        // Apply to rocket to update its position
+        rocket.updateWithPlanetRotation(planetQuaternion);
+      }
+    });
   }
   
   /**
@@ -242,5 +328,45 @@ export class PlanetSystem {
     this.planetControls.push(controls);
     
     console.log(`Added rotation controls to ${planet.name}`);
+  }
+  
+  /**
+   * Add rockets at the north pole of each planet
+   * @private
+   */
+  addRockets() {
+    this.planets.forEach(planet => {
+      // Calculate north pole position (top of the planet)
+      const rocketPosition = new THREE.Vector3(
+        planet.position.x,
+        planet.position.y + planet.radius,
+        planet.position.z
+      );
+      
+      // Create a rocket at the north pole
+      const rocket = new Rocket(this.scene, this.world, {
+        position: rocketPosition,
+        planetPosition: planet.position, // Pass planet position
+        size: 1.5,
+        planetName: planet.name
+      });
+      
+      // Register the rocket with the planet for rotation
+      const controls = this.planetControls.find(control => control.planet === planet);
+      if (controls) {
+        if (!controls.rockets) {
+          controls.rockets = [];
+        }
+        controls.rockets.push(rocket);
+      }
+      
+      // Store reference to the rocket
+      this.rockets.push(rocket);
+      
+      console.log(`Added rocket to ${planet.name}'s north pole`);
+    });
+    
+    // Immediately position rockets correctly
+    this.updateRocketPositions();
   }
 } 

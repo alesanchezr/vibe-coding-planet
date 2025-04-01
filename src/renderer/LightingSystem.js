@@ -16,7 +16,6 @@ export class LightingSystem {
     // Initialize standard lighting setup
     this.setupLighting();
     
-    console.log('LightingSystem initialized');
   }
   
   /**
@@ -24,25 +23,43 @@ export class LightingSystem {
    * @private
    */
   setupLighting() {
-    // Add ambient light (step 17)
-    this.ambientLight = new THREE.AmbientLight(0x404040);
+    // Ambient light for fill
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.2); // Lower intensity, white
     this.scene.add(this.ambientLight);
     this.lights.ambient = this.ambientLight;
-    console.log('Step 17: Added ambient light with color 0x404040');
     
-    // Add point light (step 18)
-    this.pointLight = new THREE.PointLight(0xffffff, 1, 100);
-    this.pointLight.position.set(50, 50, 50);
-    this.scene.add(this.pointLight);
-    this.lights.point = this.pointLight;
-    console.log('Step 18: Added point light at position (50, 50, 50)');
+    // Main directional light (Sun)
+    const sunLight = new THREE.DirectionalLight(0xffffff, 0.8); // Slightly less than full intensity
+    sunLight.position.set(100, 100, 100); // Position: high up, right, front
+    sunLight.target.position.set(0, 0, 0); // Target the origin
+    this.scene.add(sunLight);
+    this.scene.add(sunLight.target); // Target needs to be added too
+    this.lights.sun = sunLight;
+
+    // Configure shadows for the sun light
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048; // Increase shadow map resolution
+    sunLight.shadow.mapSize.height = 2048;
+    // Define the shadow camera frustum (needs to encompass both planets)
+    const shadowCamSize = 50; // Reduced from 60 to fit smaller scene
+    sunLight.shadow.camera.left = -shadowCamSize;
+    sunLight.shadow.camera.right = shadowCamSize;
+    sunLight.shadow.camera.top = shadowCamSize;
+    sunLight.shadow.camera.bottom = -shadowCamSize;
+    sunLight.shadow.camera.near = 50; // Adjust near/far to focus shadow calculation
+    sunLight.shadow.camera.far = 300;
+    sunLight.shadow.bias = -0.001; // Adjust bias to prevent shadow acne
     
-    // Store the initial settings for testing/verification
+    // Optional: Add a helper to visualize the shadow camera
+    // const shadowHelper = new THREE.CameraHelper(sunLight.shadow.camera);
+    // this.scene.add(shadowHelper);
+    
+    // Store the initial settings for testing/verification (updated)
     this.initialSettings = {
-      ambientColor: 0x404040,
-      pointLightPosition: new THREE.Vector3(50, 50, 50),
-      pointLightIntensity: 1,
-      pointLightDistance: 100
+      ambientColor: 0xffffff,
+      ambientIntensity: 0.2,
+      sunPosition: new THREE.Vector3(100, 100, 100),
+      sunIntensity: 0.8
     };
   }
   
@@ -67,86 +84,45 @@ export class LightingSystem {
   }
   
   /**
-   * Adjust point light properties
-   * @param {Object} properties - Properties to update
-   * @param {THREE.Vector3} [properties.position] - New position
-   * @param {number} [properties.intensity] - New intensity
-   * @param {number} [properties.distance] - New distance
-   */
-  adjustPointLight(properties = {}) {
-    if (this.pointLight) {
-      if (properties.position) {
-        this.pointLight.position.copy(properties.position);
-      }
-      
-      if (properties.intensity !== undefined) {
-        this.pointLight.intensity = properties.intensity;
-      }
-      
-      if (properties.distance !== undefined) {
-        this.pointLight.distance = properties.distance;
-      }
-      
-      console.log('Updated point light properties');
-    }
-  }
-  
-  /**
-   * Verify that step 17 is properly implemented
+   * Verify that step 17 is properly implemented (updated)
    * @returns {boolean} Whether ambient lighting is correctly set up
    */
   verifyAmbientLight() {
-    // Check if ambient light exists and has the correct color
     if (!this.ambientLight) {
-      console.error('Ambient light not found');
+      console.error("Ambient light missing!");
       return false;
     }
-    
-    // Check color (allowing for slight differences in representation)
     const colorHex = this.ambientLight.color.getHex();
+    const intensity = this.ambientLight.intensity;
     const isCorrectColor = colorHex === this.initialSettings.ambientColor;
+    const isCorrectIntensity = Math.abs(intensity - this.initialSettings.ambientIntensity) < 0.01;
     
-    if (!isCorrectColor) {
-      console.error(`Ambient light has incorrect color: 0x${colorHex.toString(16)}, expected: 0x${this.initialSettings.ambientColor.toString(16)}`);
+    if (!isCorrectColor || !isCorrectIntensity) {
+      console.error(`Ambient light incorrect. Color: 0x${colorHex.toString(16)}, Intensity: ${intensity}`);
       return false;
     }
-    
-    console.log('✓ Ambient light verified with correct color: 0x404040');
     return true;
   }
   
   /**
-   * Verify that step 18 is properly implemented
-   * @returns {boolean} Whether point lighting is correctly set up
+   * Verify that the main directional light is set up (replaces point light verification)
+   * @returns {boolean} Whether sun lighting is correctly set up
    */
-  verifyPointLight() {
-    // Check if point light exists
-    if (!this.pointLight) {
-      console.error('Point light not found');
-      return false;
+  verifySunLight() {
+    const sunLight = this.lights.sun;
+    if (!sunLight || !(sunLight instanceof THREE.DirectionalLight)) {
+        console.error("Sun DirectionalLight missing!");
+        return false;
     }
-    
-    // Check point light properties
-    const positionMatches = this.pointLight.position.equals(this.initialSettings.pointLightPosition);
-    const intensityMatches = this.pointLight.intensity === this.initialSettings.pointLightIntensity;
-    const distanceMatches = this.pointLight.distance === this.initialSettings.pointLightDistance;
-    
-    if (!positionMatches) {
-      console.error(`Point light has incorrect position: (${this.pointLight.position.x}, ${this.pointLight.position.y}, ${this.pointLight.position.z}), expected: (${this.initialSettings.pointLightPosition.x}, ${this.initialSettings.pointLightPosition.y}, ${this.initialSettings.pointLightPosition.z})`);
-      return false;
+
+    const positionMatches = sunLight.position.equals(this.initialSettings.sunPosition);
+    const intensityMatches = Math.abs(sunLight.intensity - this.initialSettings.sunIntensity) < 0.01;
+    const castsShadow = sunLight.castShadow === true;
+
+    if (!positionMatches || !intensityMatches || !castsShadow) {
+        console.error(`Sun light incorrect. Pos: ${sunLight.position.toArray()}, Intensity: ${sunLight.intensity}, CastsShadow: ${sunLight.castShadow}`);
+        return false;
     }
-    
-    if (!intensityMatches) {
-      console.error(`Point light has incorrect intensity: ${this.pointLight.intensity}, expected: ${this.initialSettings.pointLightIntensity}`);
-      return false;
-    }
-    
-    if (!distanceMatches) {
-      console.error(`Point light has incorrect distance: ${this.pointLight.distance}, expected: ${this.initialSettings.pointLightDistance}`);
-      return false;
-    }
-    
-    console.log('✓ Point light verified with correct properties');
     return true;
   }
 } 
