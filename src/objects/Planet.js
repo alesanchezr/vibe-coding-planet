@@ -340,9 +340,9 @@ export class Planet extends GameObject {
     this.atmosphere = new Atmosphere({
         radius: this.radius * 1.15, // Start atmosphere higher above the planet surface (was 1.05)
         thickness: atmosphereThickness, // Keep thickness the same for now
-        particles: 6970, // Reduced particle count by 30 (was 7000)
-        minParticleSize: 40, // Doubled min size (was 20)
-        maxParticleSize: 80, // Doubled max size (was 40)
+        particles: 4879, // Reduced particle count by 30% (was 6970)
+        minParticleSize: 20, // Reverted min size (was 40)
+        maxParticleSize: 40, // Reverted max size (was 80)
         color: 0xffffff, // Use white color for the clouds
         opacity: atmosphereOpacity,
         density: 0.6,

@@ -2,6 +2,11 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { GameObject } from './GameObject.js';
 
+// Default clicks needed per state
+const DEFAULT_CLICKS_PER_STATE = 720;
+// Number of construction states (0-4)
+const NUM_STATES = 5;
+
 /**
  * Rocket object placed at the north pole of a planet
  * @class
@@ -28,7 +33,14 @@ export class Rocket extends GameObject {
     this.rotation = options.rotation || 0;
     this.size = options.size || 1;
     this.planetName = options.planetName || 'earth';
-    
+
+    // Buildable properties
+    this.type = 'rocket';
+    this.currentState = 0; // Initial state (0-4)
+    this.currentClickCount = 0;
+    this.clicksNeededPerState = options.clicksPerState || DEFAULT_CLICKS_PER_STATE;
+    this.totalClicksNeeded = this.clicksNeededPerState * (NUM_STATES - 1); // Total clicks to reach final state
+
     // Initialize the rocket
     this.init();
   }
@@ -55,6 +67,7 @@ export class Rocket extends GameObject {
     this.mesh.userData.isRocket = true;
     this.mesh.userData.isBuildable = true;
     this.mesh.userData.buildType = 'rocket';
+    this.mesh.userData.planetName = this.planetName; // Add the planet name to userData for identification
 
     const whiteMaterial = new THREE.MeshStandardMaterial({
         color: 0xffffff, 
@@ -86,7 +99,7 @@ export class Rocket extends GameObject {
     const stage1Mesh = new THREE.Mesh(stage1Geo, whiteMaterial);
     stage1Mesh.position.y = currentY + stage1Height / 2;
     stage1Mesh.name = 'rocketStage1';
-    stage1Mesh.userData = { ...this.mesh.userData }; // Copy userData
+    stage1Mesh.userData = { ...this.mesh.userData }; // Copy userData including planetName
     this.mesh.add(stage1Mesh);
     currentY += stage1Height;
 
@@ -97,7 +110,7 @@ export class Rocket extends GameObject {
     const interstageMesh = new THREE.Mesh(interstageGeo, darkGreyMaterial);
     interstageMesh.position.y = currentY + interstageHeight / 2;
     interstageMesh.name = 'rocketInterstage';
-    interstageMesh.userData = { ...this.mesh.userData };
+    interstageMesh.userData = { ...this.mesh.userData }; // Copy userData including planetName
     this.mesh.add(interstageMesh);
     currentY += interstageHeight;
 
@@ -108,7 +121,7 @@ export class Rocket extends GameObject {
     const stage2Mesh = new THREE.Mesh(stage2Geo, greyMaterial);
     stage2Mesh.position.y = currentY + stage2Height / 2;
     stage2Mesh.name = 'rocketStage2';
-    stage2Mesh.userData = { ...this.mesh.userData };
+    stage2Mesh.userData = { ...this.mesh.userData }; // Copy userData including planetName
     this.mesh.add(stage2Mesh);
     currentY += stage2Height;
 
@@ -118,7 +131,7 @@ export class Rocket extends GameObject {
     const noseMesh = new THREE.Mesh(noseGeo, redMaterial);
     noseMesh.position.y = currentY + noseHeight / 2;
     noseMesh.name = 'rocketNoseCone';
-    noseMesh.userData = { ...this.mesh.userData };
+    noseMesh.userData = { ...this.mesh.userData }; // Copy userData including planetName
     this.mesh.add(noseMesh);
 
     // --- Fins (4) attached to Stage 1 ---
@@ -134,7 +147,7 @@ export class Rocket extends GameObject {
       const attachRadius = stage1Radius; // Attach near the edge of stage 1
       
       fin.name = `rocketFin${i}`;
-      fin.userData = { ...this.mesh.userData };
+      fin.userData = { ...this.mesh.userData }; // Copy userData including planetName
       
       // Position near the bottom of stage 1, extending outwards
       fin.position.set(
@@ -299,5 +312,89 @@ export class Rocket extends GameObject {
   update() {
     // The rocket is static, so no standard update needed
     // The rocket position/rotation is updated by the planet system
+  }
+
+  /**
+   * Adds a click to the rocket's construction progress.
+   */
+  addClick() {
+    if (this.currentState >= NUM_STATES - 1) {
+      console.log('Rocket already fully built!');
+      return; // Already completed
+    }
+
+    this.currentClickCount++;
+    console.log('Rocket click count', this.currentClickCount);
+
+    // TODO: Add visual feedback for the click (+1 effect) - Step 4
+
+    this.updateState();
+
+    // TODO: Save click to database - Step 6
+    // TODO: Notify other clients via real-time updates - Step 7
+  }
+
+  /**
+   * Checks if the current click count triggers a state change.
+   * @private
+   */
+  updateState() {
+    const clicksForNextState = (this.currentState + 1) * this.clicksNeededPerState;
+
+    if (this.currentClickCount >= clicksForNextState && this.currentState < NUM_STATES - 1) {
+      this.currentState++;
+      console.log(`Rocket reached state ${this.currentState}`);
+
+      // TODO: Update visual appearance based on new state - Step 8
+      this.updateMeshForState();
+
+      if (this.currentState === NUM_STATES - 1) {
+        console.log('ROCKET CONSTRUCTION COMPLETE!');
+        // TODO: Trigger victory condition - Step 9
+      }
+    }
+  }
+
+  /**
+   * Updates the rocket's mesh based on the current construction state.
+   * Placeholder for visual updates.
+   * @private
+   */
+  updateMeshForState() {
+    console.log(`Updating rocket mesh for state: ${this.currentState}`);
+    // In a real implementation, this would modify the geometry/materials
+    // or swap models based on this.currentState.
+    // For now, we can just log it.
+
+    // Example: Maybe change the color slightly for demonstration
+    const stage1Mesh = this.mesh.getObjectByName('rocketStage1');
+    if (stage1Mesh) {
+        const lerpFactor = this.currentState / (NUM_STATES - 1);
+        const startColor = new THREE.Color(0xffffff); // White
+        const endColor = new THREE.Color(0x00ff00); // Green
+        stage1Mesh.material.color.lerpColors(startColor, endColor, lerpFactor);
+    }
+  }
+
+  /**
+   * Gets the progress towards the next state.
+   * @returns {number} Progress percentage (0-100).
+   */
+  getProgressPercent() {
+    if (this.currentState >= NUM_STATES - 1) {
+      return 100; // Fully built
+    }
+    const clicksInCurrentState = this.currentClickCount - (this.currentState * this.clicksNeededPerState);
+    const progress = (clicksInCurrentState / this.clicksNeededPerState) * 100;
+    return Math.min(progress, 100); // Cap at 100%
+  }
+
+  /**
+   * Gets the overall progress towards full construction.
+   * @returns {number} Progress percentage (0-100).
+   */
+  getTotalProgressPercent() {
+      const progress = (this.currentClickCount / this.totalClicksNeeded) * 100;
+      return Math.min(progress, 100); // Cap at 100%
   }
 } 

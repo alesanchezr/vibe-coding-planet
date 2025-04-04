@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { SphericalPathFinder } from '../physics/SphericalPathFinder.js';
+import { Atmosphere } from '../objects/Atmosphere.js';
+import { InputManager } from '../input/InputManager.js';
 
 /**
  * Controls for clicking on planet surfaces and detecting intersection points
@@ -43,57 +45,54 @@ export class PlanetClickControls {
     // Active path visualization
     this.activePath = null;
     
-    // Tracking variables for distinguishing clicks from drags
-    this.isMouseDown = false;
-    this.mouseDownPosition = new THREE.Vector2();
-    this.mouseDownTime = 0;
-    this.dragThreshold = options.dragThreshold || 5; // Pixels of movement to consider a drag
-    this.clickTimeThreshold = options.clickTimeThreshold || 300; // Max milliseconds for a click
-    this.isDragging = false;
-    
     // Reference to planet rotation controls for coordination
     this.planetRotationControls = options.planetRotationControls || [];
     
-    // Bind event handlers
-    this._onMouseDown = this._onMouseDown.bind(this);
-    this._onMouseMove = this._onMouseMove.bind(this);
-    this._onMouseUp = this._onMouseUp.bind(this);
+    // Initialize the input manager for unified mouse/touch handling
+    this.inputManager = new InputManager(this.domElement, {
+      dragThreshold: options.dragThreshold || 5,
+      clickTimeThreshold: options.clickTimeThreshold || 300
+    });
     
-    // Add event listeners
-    this._addEventListeners();
+    // Set up input callbacks
+    this._setupInputCallbacks();
     
-    console.log('PlanetClickControls initialized');
+    console.log('PlanetClickControls initialized with unified input handling');
   }
   
   /**
-   * Set the planet rotation controls for coordination
-   * @param {Array} controls - Array of PlanetRotationControls instances
-   */
-  setPlanetRotationControls(controls) {
-    this.planetRotationControls = Array.isArray(controls) ? controls : [controls];
-  }
-  
-  /**
-   * Check if any planet rotation controls are currently dragging
-   * @returns {boolean} True if any planet rotation controls are dragging
+   * Set up callbacks for the input manager
    * @private
    */
-  _isPlanetBeingDragged() {
-    if (!this.planetRotationControls || this.planetRotationControls.length === 0) {
-      return false;
-    }
+  _setupInputCallbacks() {
+    // Handle clicks (both mouse and touch)
+    this.inputManager.setClickCallback((event) => {
+      if (!this.enabled) return;
+      
+      // Update mouse coordinates for raycasting
+      this.mouse.x = event.normalizedX;
+      this.mouse.y = event.normalizedY;
+      
+      // Process the click
+      this._processClick(event.originalEvent);
+    });
     
-    // Check if any rotation controls are currently dragging
-    const isDragging = this.planetRotationControls.some(control => control && control.isDragging);
+    // We don't need to implement the drag handlers here since
+    // the InputManager already handles distinguishing between
+    // clicks and drags, and will only call our click handler
+    // for proper clicks.
+  }
+  
+  /**
+   * Add a list of planets to the clickable objects
+   * @param {Planet[]} planets - Array of planets to add
+   */
+  addClickablePlanets(planets) {
+    if (!planets || !Array.isArray(planets)) return;
     
-    // Debug: Log the dragging state of each control
-    if (isDragging) {
-      console.log('Planet rotation controls dragging states:', 
-        this.planetRotationControls.map(control => control ? control.isDragging : false)
-      );
-    }
-    
-    return isDragging;
+    planets.forEach(planet => {
+      this.addClickableObject(planet);
+    });
   }
   
   /**
@@ -108,18 +107,29 @@ export class PlanetClickControls {
   }
   
   /**
-   * Add all planets to the clickable objects list
-   * @param {Array} planets - Array of planet objects
+   * Enable or disable the controls
+   * @param {boolean} enabled - Whether controls should be enabled
    */
-  addClickablePlanets(planets) {
-    if (Array.isArray(planets)) {
-      planets.forEach(planet => this.addClickableObject(planet));
+  setEnabled(enabled) {
+    this.enabled = enabled;
+    
+    // When disabling, hide the marker
+    if (!enabled) {
+      this.marker.visible = false;
     }
   }
   
   /**
+   * Set planet rotation controls for coordination
+   * @param {PlanetRotationControls[]} controls - Array of rotation controls
+   */
+  setPlanetRotationControls(controls) {
+    this.planetRotationControls = controls || [];
+  }
+  
+  /**
    * Create a visual marker for the clicked point
-   * @returns {THREE.Mesh} The marker mesh
+   * @returns {THREE.Object3D} Marker mesh
    * @private
    */
   _createMarker() {
@@ -171,9 +181,9 @@ export class PlanetClickControls {
   
   /**
    * Update the marker animation
-   * @param {number} deltaTime - Time since last update in seconds
+   * @param {number} deltaTime - Time in seconds since last update
    */
-  updateMarker(deltaTime) {
+  update(deltaTime) {
     if (this.marker && this.marker.visible) {
       // Update animation time
       this.marker.animationTime += deltaTime;
@@ -198,179 +208,104 @@ export class PlanetClickControls {
   }
   
   /**
-   * Add event listeners to the DOM element
-   * @private
-   */
-  _addEventListeners() {
-    this.domElement.addEventListener('mousedown', this._onMouseDown, false);
-    this.domElement.addEventListener('mousemove', this._onMouseMove, false);
-    this.domElement.addEventListener('mouseup', this._onMouseUp, false);
-  }
-  
-  /**
-   * Remove event listeners from the DOM element
-   * @private
-   */
-  _removeEventListeners() {
-    this.domElement.removeEventListener('mousedown', this._onMouseDown, false);
-    this.domElement.removeEventListener('mousemove', this._onMouseMove, false);
-    this.domElement.removeEventListener('mouseup', this._onMouseUp, false);
-  }
-  
-  /**
-   * Handle mouse down events
-   * @param {MouseEvent} event - The mouse event
-   * @private
-   */
-  _onMouseDown(event) {
-    if (!this.enabled) return;
-    
-    // Record the mouse down position
-    const rect = this.domElement.getBoundingClientRect();
-    this.mouseDownPosition.x = event.clientX - rect.left;
-    this.mouseDownPosition.y = event.clientY - rect.top;
-    
-    // Record the time of mouse down
-    this.mouseDownTime = performance.now();
-    
-    this.isMouseDown = true;
-    this.isDragging = false;
-  }
-  
-  /**
-   * Handle mouse move events
-   * @param {MouseEvent} event - The mouse event
-   * @private
-   */
-  _onMouseMove(event) {
-    if (!this.enabled || !this.isMouseDown) return;
-    
-    // Check if movement exceeds drag threshold
-    const rect = this.domElement.getBoundingClientRect();
-    const currentX = event.clientX - rect.left;
-    const currentY = event.clientY - rect.top;
-    
-    const deltaX = currentX - this.mouseDownPosition.x;
-    const deltaY = currentY - this.mouseDownPosition.y;
-    const dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    
-    if (dragDistance > this.dragThreshold) {
-      this.isDragging = true;
-    }
-  }
-  
-  /**
-   * Force reset drag state of all rotation controls
-   * This ensures that any lingering drag states are cleared
-   * @private
-   */
-  _resetAllPlanetDragStates() {
-    if (!this.planetRotationControls || this.planetRotationControls.length === 0) {
-      return;
-    }
-    
-    this.planetRotationControls.forEach(control => {
-      if (control && typeof control.resetDragState === 'function') {
-        control.resetDragState();
-      } else if (control && control.isDragging) {
-        // Fallback if resetDragState isn't available
-        console.log('Forcibly resetting drag state on a planet control');
-        control.isDragging = false;
-      }
-    });
-  }
-  
-  /**
-   * Handle mouse up events
-   * @param {MouseEvent} event - The mouse event
-   * @private
-   */
-  _onMouseUp(event) {
-    if (!this.enabled || !this.isMouseDown) return;
-    
-    // Calculate time since mouse down
-    const clickDuration = performance.now() - this.mouseDownTime;
-    
-    // Reset mouse down state
-    this.isMouseDown = false;
-    
-    // Make sure any stuck drag states are reset
-    this._resetAllPlanetDragStates();
-    
-    // Check if we've moved more than the threshold
-    const isDraggedTooMuch = this.isDragging;
-    
-    // Check if any planet is still being dragged after the reset
-    const isPlanetStillBeingDragged = this._isPlanetBeingDragged();
-    
-    // Check if click duration is too long
-    const isTooLong = clickDuration > this.clickTimeThreshold;
-    
-    // Only process click if all conditions are met
-    if (!isDraggedTooMuch && !isPlanetStillBeingDragged && !isTooLong) {
-      this._processClick(event);
-    } else {
-      // If any condition fails, hide the marker
-      this.marker.visible = false;
-      
-      // Log the reason for ignoring the click
-      if (isDraggedTooMuch) {
-        console.log('Click ignored: User was dragging');
-      } else if (isPlanetStillBeingDragged) {
-        console.log('Click ignored: Planet is still being rotated after reset');
-      } else if (isTooLong) {
-        console.log(`Click ignored: Long press detected (${clickDuration.toFixed(0)}ms > ${this.clickTimeThreshold}ms)`);
-      }
-    }
-    
-    // Reset drag state
-    this.isDragging = false;
-  }
-  
-  /**
    * Process a click event when not dragging
-   * @param {MouseEvent} event - The mouse event
+   * @param {MouseEvent|TouchEvent} event - The original event
    * @private
    */
   _processClick(event) {
-    // Calculate mouse position in normalized device coordinates (-1 to +1)
-    this._updateMousePosition(event);
-    
     // Perform raycasting
     this.raycaster.setFromCamera(this.mouse, this.camera);
     
-    // Get intersections with clickable objects
-    const intersects = this.raycaster.intersectObjects(this.clickableObjects, true);
+    // Get intersections with clickable objects (recursive check)
+    let intersects = this.raycaster.intersectObjects(this.clickableObjects, true);
+    
+    // Filter out intersections with Atmosphere objects
+    intersects = intersects.filter(intersection => {
+        // Check the intersected object itself
+        if (intersection.object instanceof Atmosphere) {
+            return false;
+        }
+        // Also check if any ancestor is an Atmosphere object (though less likely with current setup)
+        let parent = intersection.object.parent;
+        while (parent) {
+            if (parent instanceof Atmosphere) {
+                console.log('Ignoring click on child of Atmosphere object.');
+                return false;
+            }
+            parent = parent.parent;
+        }
+        return true; // Keep this intersection
+    });
     
     if (intersects.length > 0) {
-      // Get the first intersection
+      // Get the first *valid* (non-atmosphere) intersection
       const intersection = intersects[0];
       
       // Check if the clicked object is a buildable element (rocket, construction site, etc.)
-      let currentObject = intersection.object;
       let buildableObject = null;
+
+      // Traverse up from the clicked object to find the top-level buildable group
+      let potentialBuildable = intersection.object;
       
-      while (currentObject) {
-        // Check if this object or any parent is a buildable element
-        if (currentObject.name && (
-            currentObject.name.includes('rocket') || 
-            currentObject.name.includes('buildable') ||
-            (currentObject.userData && 
-              (currentObject.userData.isRocket || currentObject.userData.isBuildable))
-        )) {
-          console.log('Buildable element clicked - handling separately');
-          buildableObject = currentObject;
-          
-          // Find the top-level buildable object by traversing up
-          while (buildableObject.parent && 
-                 !buildableObject.name.includes('rocket') && 
-                 !buildableObject.name.includes('buildable')) {
-            buildableObject = buildableObject.parent;
+      // First, find which planet was clicked (we need this information for rockets)
+      let clickedPlanetName = null;
+      let planetObject = intersection.object;
+      while (planetObject && !clickedPlanetName) {
+          // Look for earth or mars in the name
+          if (planetObject.name.includes('earth')) {
+              clickedPlanetName = 'earth';
+          } else if (planetObject.name.includes('mars')) {
+              clickedPlanetName = 'mars';
           }
-          
+          // Move up to parent
+          if (!clickedPlanetName && planetObject.parent) {
+              planetObject = planetObject.parent;
+          } else {
+              break;
+          }
+      }
+      
+      console.log(`Planet determined from click: ${clickedPlanetName || 'unknown'}`);
+      
+      // Now look for buildable
+      while (potentialBuildable) {
+          // Check if this object is marked as buildable in its userData
+          if (potentialBuildable.userData && 
+              (potentialBuildable.userData.isRocket || potentialBuildable.userData.isBuildable)) {
+              
+              // Found a buildable part or the main group itself.
+              // Now, ensure we get the TOP-LEVEL buildable group.
+              let topLevelBuildable = potentialBuildable;
+              while (topLevelBuildable.parent && 
+                     topLevelBuildable.parent.userData && 
+                     (topLevelBuildable.parent.userData.isRocket || topLevelBuildable.parent.userData.isBuildable)) {
+                   // Keep going up as long as the parent is also marked as buildable.
+                   // This handles nested structures and finds the outermost marked group.
+                   topLevelBuildable = topLevelBuildable.parent;
+              }
+              
+              // We found the correct top-level object
+              buildableObject = topLevelBuildable;
+              
+              // If the object doesn't have planetName in its userData, add it
+              if (clickedPlanetName && (!buildableObject.userData.planetName)) {
+                  console.log(`Adding planetName ${clickedPlanetName} to buildable userData`);
+                  buildableObject.userData.planetName = clickedPlanetName;
+              }
+              
+              console.log('Buildable element clicked, passing top-level object:', buildableObject.name, 
+                          'planetName:', buildableObject.userData.planetName || clickedPlanetName || 'unknown');
+              break; // Exit the outer while loop, we found our object
+          }
+          // Move up to the parent if the current one wasn't marked
+          potentialBuildable = potentialBuildable.parent;
+      }
+
+      // If we found a buildable object after traversing up
+      if (buildableObject) {
           // Invoke buildable click handler in game if available
           if (window.game && typeof window.game.handleBuildableClick === 'function') {
-            window.game.handleBuildableClick(buildableObject);
+            window.game.handleBuildableClick(buildableObject); // Pass the identified top-level object
           } else if (window.game && typeof window.game.handleRocketClick === 'function') {
             // Fallback to older handler for backward compatibility
             window.game.handleRocketClick(buildableObject);
@@ -378,9 +313,6 @@ export class PlanetClickControls {
           
           // Don't process this click for movement
           return;
-        }
-        // Move up to the parent
-        currentObject = currentObject.parent;
       }
       
       // Check if the click is near a buildable element even if not directly on it
@@ -394,22 +326,17 @@ export class PlanetClickControls {
       }
       
       // Find which planet was clicked
-      let planetObject = intersection.object;
       let planet = null;
       
-      // Traverse up to find the planet
-      while (planetObject && !planetObject.name.includes('earth') && !planetObject.name.includes('mars')) {
-        planetObject = planetObject.parent;
-      }
-      
-      const planetName = planetObject ? planetObject.name : 'unknown';
+      // Reuse the planetObject from earlier
+      // No need to retraverse the hierarchy since we already found the planet name
       
       // Find the planet mesh in the scene - we need the top-level planet object
       let planetMesh = null;
       let planetRadius = 15; // Default radius
       
       this.clickableObjects.forEach(obj => {
-        if (obj.name === planetName || (obj.parent && obj.parent.name === planetName)) {
+        if (obj.name === clickedPlanetName || (obj.parent && obj.parent.name === clickedPlanetName)) {
           planetMesh = obj;
           // Extract radius from userData if available
           if (obj.userData && obj.userData.radius) {
@@ -421,7 +348,7 @@ export class PlanetClickControls {
       if (!planetMesh) {
         // Fallback search in the whole scene
         this.scene.traverse(object => {
-          if (object.name === planetName) {
+          if (object.name === clickedPlanetName) {
             planetMesh = object;
             if (object.userData && object.userData.radius) {
               planetRadius = object.userData.radius;
@@ -434,13 +361,13 @@ export class PlanetClickControls {
       if (planetMesh) {
         planet = planetMesh;
       } else {
-        console.warn(`Could not find planet mesh for ${planetName}, using clicked object`);
+        console.warn(`Could not find planet mesh for ${clickedPlanetName}, using clicked object`);
         planet = planetObject;
       }
       
       // Log debug information about the planet
       console.log('Planet details:', {
-        name: planetName,
+        name: clickedPlanetName,
         mesh: planetMesh ? 'found' : 'not found',
         radius: planetRadius,
         position: planet ? new THREE.Vector3().setFromMatrixPosition(planet.matrixWorld) : 'unknown'
@@ -516,7 +443,7 @@ export class PlanetClickControls {
       this._clearPathVisualization();
       
       // Get player position for path calculation
-      const playerPosition = this._getPlayerPosition(planetName);
+      const playerPosition = this._getPlayerPosition(clickedPlanetName);
       
       if (playerPosition) {
         // Calculate and display path from player to clicked point
@@ -527,14 +454,14 @@ export class PlanetClickControls {
       if (this.onPlanetClick) {
         this.onPlanetClick({
           point: worldIntersectionPoint,
-          planetName: planetName,
+          planetName: clickedPlanetName,
           normal: intersection.face ? intersection.face.normal.clone() : new THREE.Vector3(0, 1, 0),
           distance: intersection.distance,
           path: this.activePath ? this.activePath.points : null
         });
       }
       
-      console.log(`Planet surface clicked at: (${worldIntersectionPoint.x.toFixed(2)}, ${worldIntersectionPoint.y.toFixed(2)}, ${worldIntersectionPoint.z.toFixed(2)}) on ${planetName}`);
+      console.log(`Planet surface clicked at: (${worldIntersectionPoint.x.toFixed(2)}, ${worldIntersectionPoint.y.toFixed(2)}, ${worldIntersectionPoint.z.toFixed(2)}) on ${clickedPlanetName}`);
     } else {
       // Hide marker if no planet was clicked
       this.marker.visible = false;
@@ -704,82 +631,53 @@ export class PlanetClickControls {
   }
   
   /**
-   * Update mouse position from event
-   * @param {MouseEvent} event - The mouse event
+   * Check if any planet is currently being dragged
+   * @returns {boolean} Whether any planet is being dragged
    * @private
    */
-  _updateMousePosition(event) {
-    // Get canvas-relative coordinates
-    const rect = this.domElement.getBoundingClientRect();
-    
-    // Calculate normalized device coordinates (-1 to +1)
-    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  }
-  
-  /**
-   * Enable or disable controls
-   * @param {boolean} enabled - Whether controls should be enabled
-   */
-  setEnabled(enabled) {
-    this.enabled = enabled;
-    this.marker.visible = false;
-  }
-  
-  /**
-   * Set a callback function for when a planet is clicked
-   * @param {Function} callback - Function to call when a planet is clicked
-   */
-  setClickCallback(callback) {
-    if (typeof callback === 'function') {
-      this.onPlanetClick = callback;
-    }
-  }
-  
-  /**
-   * Clean up and dispose of resources
-   */
-  dispose() {
-    this._removeEventListeners();
-    
-    // Remove and dispose of marker
-    if (this.marker) {
-      // Check if marker is a child of a planet
-      if (this.markerPlanet && this.marker.parent === this.markerPlanet) {
-        this.markerPlanet.remove(this.marker);
-      } else if (this.marker.parent) {
-        this.marker.parent.remove(this.marker);
-      }
-      
-      // Dispose of marker components
-      if (this.marker.pin) {
-        this.marker.pin.geometry.dispose();
-        this.marker.pin.material.dispose();
-      }
-      if (this.marker.ring) {
-        this.marker.ring.geometry.dispose();
-        this.marker.ring.material.dispose();
-      }
-      if (this.marker.sphere) {
-        this.marker.sphere.geometry.dispose();
-        this.marker.sphere.material.dispose();
-      }
+  _isPlanetBeingDragged() {
+    if (!this.planetRotationControls || this.planetRotationControls.length === 0) {
+      return false;
     }
     
-    // Clear any path visualization
-    this._clearPathVisualization();
+    // Check if any rotation controls are currently dragging
+    const isDragging = this.planetRotationControls.some(control => control && control.isDragging);
     
-    // Clear references
-    this.markerPlanet = null;
-    this.marker = null;
-    this.clickableObjects = [];
+    // Debug: Log the dragging state of each control
+    if (isDragging) {
+      console.log('Planet rotation controls dragging states:', 
+        this.planetRotationControls.map(control => control ? control.isDragging : false)
+      );
+    }
+    
+    return isDragging;
   }
   
   /**
-   * Check if a position is near any buildable element in the scene
+   * Force reset drag state of all rotation controls
+   * @private
+   */
+  _resetAllPlanetDragStates() {
+    if (!this.planetRotationControls || this.planetRotationControls.length === 0) {
+      return;
+    }
+    
+    this.planetRotationControls.forEach(control => {
+      if (control && typeof control.resetDragState === 'function') {
+        control.resetDragState();
+      } else if (control && control.isDragging) {
+        // Fallback if resetDragState isn't available
+        console.log('Forcibly resetting drag state on a planet control');
+        control.isDragging = false;
+      }
+    });
+  }
+  
+  /**
+   * Check if a point is near any buildable element
    * @param {THREE.Vector3} position - The position to check
-   * @param {number} threshold - The distance threshold in world units
-   * @returns {boolean} True if the position is near a buildable element
+   * @param {number} threshold - Distance threshold
+   * @returns {boolean} Whether the point is near any buildable
    * @private
    */
   _isNearAnyBuildable(position, threshold = 2.0) {
@@ -834,5 +732,66 @@ export class PlanetClickControls {
     }
     
     return false;
+  }
+  
+  /**
+   * Set camera to look at the path
+   * @param {THREE.Vector3} startPoint - Start point
+   * @param {THREE.Vector3} endPoint - End point
+   * @param {THREE.Vector3} planetCenter - Center of the planet
+   * @private
+   */
+  _setCameraLookAtPath(startPoint, endPoint, planetCenter) {
+    // Implementation of _setCameraLookAtPath method
+  }
+  
+  /**
+   * Clear the active path visualization
+   * @private
+   */
+  _clearActivePath() {
+    // Implementation of _clearActivePath method
+  }
+  
+  /**
+   * Create a path visualization
+   * @param {THREE.Vector3[]} pathPoints - Array of points in the path
+   * @returns {THREE.Line} The path line
+   * @private
+   */
+  _createPathVisualization(pathPoints) {
+    // Implementation of _createPathVisualization method
+  }
+  
+  /**
+   * Set a callback function for when a planet is clicked
+   * @param {Function} callback - Function to call when a planet is clicked
+   */
+  setClickCallback(callback) {
+    if (typeof callback === 'function') {
+      this.onPlanetClick = callback;
+    }
+  }
+  
+  /**
+   * Dispose of resources and remove event listeners
+   */
+  dispose() {
+    // Dispose of the input manager to clean up event listeners
+    if (this.inputManager) {
+      this.inputManager.dispose();
+    }
+    
+    // Clear the active path
+    this._clearActivePath();
+    
+    // Remove the marker
+    if (this.marker) {
+      this.scene.remove(this.marker);
+      if (this.marker.sphere) {
+        this.marker.sphere.geometry.dispose();
+        this.marker.sphere.material.dispose();
+      }
+    }
   }
 } 

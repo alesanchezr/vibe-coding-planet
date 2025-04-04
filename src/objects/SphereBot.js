@@ -229,6 +229,21 @@ export class SphereBot extends GameObject {
   }
   
   /**
+   * Generate an SVG icon representing this SphereBot with its color
+   * @returns {string} SVG string with the SphereBot's color applied
+   */
+  getIcon() {
+    // The SVG content of earthian.svg with the SphereBot's color
+    return `<svg width="24" height="24" viewBox="0 0 170 168" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M55.5 115L70 116L70.5 121.5V155.5L70 159L68.5 161.5L67 163L65 164H60L57 162.5L56 160.5L55 158V155.5L55.5 115Z" fill="${this.color}" stroke="${this.color}"/>
+      <path d="M103.5 115L118 116L118.5 121.5V155.5L118 159L116.5 161.5L115 163L113 164H108L105 162.5L104 160.5L103 158V155.5L103.5 115Z" fill="${this.color}" stroke="${this.color}"/>
+      <path d="M153 71.5C153 108.779 122.555 139 85 139C47.4446 139 17 108.779 17 71.5C17 34.2208 47.4446 4 85 4C122.555 4 153 34.2208 153 71.5Z" fill="${this.color}"/>
+      <ellipse cx="110.5" cy="65" rx="12.5" ry="19" fill="white"/>
+      <ellipse cx="62.5" cy="65" rx="12.5" ry="19" fill="white"/>
+    </svg>`;
+  }
+  
+  /**
    * Clean up resources used by this object
    * @override
    */

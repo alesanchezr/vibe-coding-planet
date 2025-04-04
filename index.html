@@ -5,134 +5,18 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Planet Clicker Wars</title>
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      body, html {
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-      }
-      #app {
-        width: 100%;
-        height: 100%;
-        position: relative;
-      }
-      #gameCanvas {
-        width: 100%;
-        height: 100%;
-        display: block;
-      }
-      #joinButton {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        padding: 12px 24px;
-        font-size: 18px;
-        background-color: #4CAF50;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        z-index: 10;
-      }
-      #joinButton:hover {
-        background-color: #45a049;
-      }
-      #statusPanel {
-        position: fixed;
-        top: 20px;
-        left: 20px;
-        background-color: rgba(0, 0, 0, 0.7);
-        color: white;
-        padding: 10px 15px;
-        border-radius: 5px;
-        font-family: Arial, sans-serif;
-        z-index: 1000;
-      }
-      #statusPanel .status-item {
-        margin: 5px 0;
-        font-size: 14px;
-      }
-      #statusPanel .status-item span {
-        color: #4CAF50;
-        font-weight: bold;
-      }
-      #statusPanel .connection-status {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-      }
-      #statusPanel .connection-status .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-      }
-      #statusPanel .connection-status .dot.connected {
-        background-color: #4CAF50;
-      }
-      #statusPanel .connection-status .dot.disconnected {
-        background-color: #f44336;
-      }
-      #statusPanel .connection-status .dot.error {
-        background-color: #ff9800;
-      }
-      #statusPanel .user-id {
-        font-size: 12px;
-        color: #888;
-        margin-top: 2px;
-      }
-      #debugPanel {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background-color: rgba(0, 0, 0, 0.7);
-        color: white;
-        padding: 10px 15px;
-        border-radius: 5px;
-        font-family: Arial, sans-serif;
-        z-index: 1000;
-      }
-      #debugPanel h3 {
-        margin: 0 0 10px 0;
-        font-size: 16px;
-        color: #4CAF50;
-      }
-      #debugPanel button {
-        background-color: #2196F3;
-        color: white;
-        border: none;
-        padding: 8px 15px;
-        border-radius: 4px;
-        cursor: pointer;
-        margin-top: 5px;
-      }
-      #debugPanel button:hover {
-        background-color: #1976D2;
-      }
-      #debugPanel .status-item {
-        margin: 5px 0;
-        font-size: 14px;
-      }
-      #debugPanel .status-item span {
-        color: #4CAF50;
-        font-weight: bold;
-      }
-    </style>
   </head>
   <body>
     <div id="app">
       <div id="statusPanel">
-        <div class="status-item connection-status">
+        <div class="connection-status">
           <div class="dot disconnected" id="connectionDot"></div>
-          <div id="connectionStatus">Disconnected</div>
+          <div class="status-content">
+            <div id="connectionStatus">Disconnected</div>
+            <div class="user-id" id="userId"></div>
+            <div class="status-item">Live Players: <span id="livePlayerCount">0</span></div>
+          </div>
         </div>
-        <div class="user-id" id="userId"></div>
-        <div class="status-item">Live Players: <span id="livePlayerCount">0</span></div>
       </div>
       <div id="debugPanel">
         <h3>Debug Panel</h3>
@@ -141,8 +25,135 @@
         <button id="destroySession">Destroy Session</button>
       </div>
       <canvas id="gameCanvas"></canvas>
-      <button id="joinButton">Join a mission</button>
+
+      <!-- Planet population indicators - will be filled programmatically -->
+      <div id="planetIndicators" style="display: none;"></div>
+
+      <!-- Player contributions leaderboard -->
+      <div id="playerContributions" style="display: none;">
+        <div id="contributionsList"></div>
+      </div>
+
+      <button id="joinButton" class="btn btn-primary btn-centered">Join a mission</button>
+      <button id="backToSpaceButton" class="btn btn-secondary" style="display: none;">Back to outer space</button>
+      <div id="rotateDevice">
+        <img src="/rotate.png" alt="Please rotate your device">
+        <p>Please rotate your device to landscape mode for the best experience</p>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
+    <script>
+      // Add toggle functionality for status panel
+      document.addEventListener('DOMContentLoaded', function() {
+        const statusPanel = document.getElementById('statusPanel');
+        const connectionDot = document.getElementById('connectionDot');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const rotateMessage = document.getElementById('rotateDevice');
+        const debugPanel = document.getElementById('debugPanel');
+        
+        // Function to toggle panel expansion
+        function toggleStatusPanel() {
+          statusPanel.classList.toggle('expanded');
+        }
+        
+        // Add click event to the panel
+        statusPanel.addEventListener('click', toggleStatusPanel);
+        
+        // Auto-expand when disconnected
+        const observer = new MutationObserver(function(mutations) {
+          mutations.forEach(function(mutation) {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+              // If dot has 'disconnected' class, expand the panel
+              if (connectionDot.classList.contains('disconnected')) {
+                statusPanel.classList.add('expanded');
+              }
+            }
+          });
+        });
+        
+        // Observe the connection dot for class changes
+        observer.observe(connectionDot, { attributes: true });
+        
+        // Also check connection status text changes
+        const textObserver = new MutationObserver(function(mutations) {
+          mutations.forEach(function(mutation) {
+            if (mutation.type === 'characterData' || mutation.type === 'childList') {
+              const currentStatus = connectionStatus.textContent.toLowerCase();
+              
+              // If status is disconnected, expand the panel
+              if (currentStatus === 'disconnected') {
+                statusPanel.classList.add('expanded');
+              } 
+              // If status indicates "ready" state, collapse the panel
+              else if (currentStatus.includes('ready') || 
+                       currentStatus.includes('connected') || 
+                       currentStatus.includes('join')) {
+                statusPanel.classList.remove('expanded');
+              }
+            }
+          });
+        });
+        
+        // Observe the connection status text
+        textObserver.observe(connectionStatus, { characterData: true, childList: true, subtree: true });
+        
+        // Initial check - expand/collapse based on current status
+        const currentStatus = connectionStatus.textContent.toLowerCase();
+        if (connectionDot.classList.contains('disconnected') || currentStatus === 'disconnected') {
+          statusPanel.classList.add('expanded');
+        } else if (currentStatus.includes('ready') || 
+                   currentStatus.includes('connected') || 
+                   currentStatus.includes('join')) {
+          statusPanel.classList.remove('expanded');
+        }
+        
+        // --- Screen rotation detection ---
+        
+        // Function to check if device is mobile
+        function isMobileDevice() {
+          return (window.innerWidth <= 768 || 
+                  navigator.userAgent.match(/Android/i) || 
+                  navigator.userAgent.match(/iPhone|iPad|iPod/i));
+        }
+        
+        // Function to check orientation and show/hide rotate message
+        function checkOrientation() {
+          if (isMobileDevice() && window.innerHeight > window.innerWidth) {
+            rotateMessage.style.display = 'flex';
+          } else {
+            rotateMessage.style.display = 'none';
+          }
+        }
+        
+        // Check on load
+        checkOrientation();
+        
+        // Check on resize and orientation change
+        window.addEventListener('resize', checkOrientation);
+        window.addEventListener('orientationchange', checkOrientation);
+        
+        // --- Debug panel toggle with keyboard shortcut ---
+        
+        // Function to toggle debug panel
+        function toggleDebugPanel() {
+          if (debugPanel.style.display === 'none' || !debugPanel.style.display) {
+            debugPanel.style.display = 'inline-block';
+            console.log('Debug panel shown');
+          } else {
+            debugPanel.style.display = 'none';
+            console.log('Debug panel hidden');
+          }
+        }
+        
+        // Listen for keyboard shortcut
+        document.addEventListener('keydown', function(e) {
+          // Check for Ctrl+Shift+D (or Cmd+Shift+D on Mac)
+          if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
+            e.preventDefault(); // Prevent browser's default behavior
+            toggleDebugPanel();
+          }
+        });
+      });
+    </script>
   </body>
 </html>

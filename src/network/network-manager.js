@@ -1,5 +1,6 @@
 import { authManager } from './auth-manager.js';
 import { playerManager } from './player-manager.js';
+import { gameQueueManager } from './game-queue-manager.js';
 import RealtimeManager from './realtime-manager.js';
 
 /**
@@ -16,6 +17,7 @@ export const INACTIVE_THRESHOLD = 5 * 60 * 1000;
  * - Player data assignment and synchronization
  * - Position interpolation for networked entities
  * - Event-based data propagation
+ * - Game state synchronization
  */
 class NetworkManager {
   /**
@@ -26,6 +28,7 @@ class NetworkManager {
     // Store references to other network managers
     this.authManager = authManager;
     this.playerManager = playerManager;
+    this.gameQueueManager = gameQueueManager;
     this.realtimeManager = null; // Will be implemented later
     
     // Internal state
@@ -35,7 +38,8 @@ class NetworkManager {
       onPlayerJoined: [],
       onPlayerLeft: [],
       onPositionUpdated: [],
-      onConnectionStateChanged: []
+      onConnectionStateChanged: [],
+      onGameStateChanged: []
     };
     
     // Position buffer for interpolation (playerId -> array of timestamped positions)
@@ -74,6 +78,12 @@ class NetworkManager {
       
       // Initialize player manager
       await this.playerManager.initialize(session);
+      
+      // Initialize game queue manager
+      await this.gameQueueManager.initialize();
+      
+      // Setup game state change handlers
+      this._setupGameStateHandlers();
       
       // Set up heartbeat to keep session alive
       this._setupHeartbeat();
@@ -124,6 +134,89 @@ class NetworkManager {
   }
   
   /**
+   * Set up handlers for game state changes
+   * @private
+   */
+  _setupGameStateHandlers() {
+    // Set up callback for game state changes
+    this.gameQueueManager.onGameStateChanged = (gameData) => {
+      console.log('Game state changed:', gameData);
+      
+      // Trigger event for game state change
+      this._triggerEvent('onGameStateChanged', gameData);
+    };
+    
+    // Set up callback for new game creation
+    this.gameQueueManager.onGameCreated = (gameData) => {
+      console.log('New game created:', gameData);
+      
+      // Trigger event for game state change
+      this._triggerEvent('onGameStateChanged', gameData);
+    };
+    
+    // Set up callback for game end
+    this.gameQueueManager.onGameEnded = (gameData) => {
+      console.log('Game ended:', gameData);
+      
+      // Trigger event for game state change
+      this._triggerEvent('onGameStateChanged', gameData);
+    };
+  }
+  
+  /**
+   * Get the current game state
+   * @returns {string|null} The current game state or null if no game
+   */
+  getCurrentGameState() {
+    return this.gameQueueManager.getCurrentGameState();
+  }
+  
+  /**
+   * Get the remaining time for the current game phase
+   * @returns {number} Remaining time in seconds
+   */
+  getRemainingTime() {
+    return this.gameQueueManager.calculateRemainingTime();
+  }
+  
+  /**
+   * Start a new game with default settings
+   * @returns {Promise<Object>} The created game
+   */
+  async startNewGame() {
+    try {
+      console.log('Starting new game...');
+      
+      const game = await this.gameQueueManager.createNewGame();
+      
+      return game;
+    } catch (error) {
+      console.error('Error starting new game:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Trigger automatic game state transitions based on timers
+   * NOTE: This should only be called by server processes, not clients
+   * @returns {Promise<void>}
+   */
+  async triggerStateTransitions() {
+    try {
+      if (!this.gameQueueManager) {
+        throw new Error('GameQueueManager not initialized');
+      }
+      
+      console.log('Triggering automatic game state transitions...');
+      
+      await this.gameQueueManager.triggerStateTransitions();
+    } catch (error) {
+      console.error('Error triggering game state transitions:', error);
+      throw error;
+    }
+  }
+  
+  /**
    * Join the game, assigning the current player to a planet
    * @returns {Promise<object>} Object containing the planet assignment and player status
    */
@@ -165,6 +258,67 @@ class NetworkManager {
   }
   
   /**
+   * Calculate the distance between two positions
+   * @param {Object} pos1 - First position {x, y, z}
+   * @param {Object} pos2 - Second position {x, y, z}
+   * @returns {number} Distance between positions
+   * @private
+   */
+  _calculatePositionDistance(pos1, pos2) {
+    if (!pos1 || !pos2) return Infinity;
+    return Math.sqrt(
+      Math.pow(pos2.x - pos1.x, 2) +
+      Math.pow(pos2.y - pos1.y, 2) +
+      Math.pow(pos2.z - pos1.z, 2)
+    );
+  }
+
+  /**
+   * Process a position update from the server
+   * @param {string} playerId - The player's ID
+   * @param {Object} serverPosition - The position from the server {x, y, z}
+   * @param {Object} playerData - Full player data from the server
+   * @param {boolean} isTestPlayer - Whether this is a test player
+   * @private
+   */
+  _processServerPositionUpdate(playerId, serverPosition, playerData, isTestPlayer) {
+    // Skip processing if this is our own update
+    if (playerId === this.authManager.getCurrentUserId()) {
+      return;
+    }
+
+    // Get the current interpolated position for this player
+    // Note: Using interpolated position might smooth out small discrepancies. 
+    // If you need exact comparison against the game object's *current* physics state,
+    // you might need to get that state directly from the Game class.
+    const currentPosition = this.getInterpolatedPosition(playerId);
+    
+    // Calculate distance between current interpolated and server position
+    const distance = this._calculatePositionDistance(currentPosition, serverPosition);
+    
+    // Log the position difference for debugging (consider adding a debug flag)
+    // console.log(`Position update for ${isTestPlayer ? 'test' : ''} player ${playerId}:`, {
+    //   currentPosition,
+    //   serverPosition,
+    //   distance: distance.toFixed(2)
+    // });
+
+    // Store the last known good position from the server
+    this.lastServerPositions[playerId] = { ...serverPosition };
+
+    // If the distance is significant (e.g., > 0.1 units), trigger a position update event
+    // This allows the game logic to decide *how* to reconcile (e.g., snap, smooth move)
+    if (distance > 0.1) { // Threshold can be adjusted
+      console.log(`Significant position difference (${distance.toFixed(2)}) for player ${playerId}. Triggering update.`);
+      this._triggerEvent('onPositionUpdated', playerId, serverPosition, isTestPlayer, playerData.planet_name);
+    } else {
+      // If the distance is small, we might not need to trigger a full reconciliation event.
+      // We still store the server position, and interpolation handles minor smoothing.
+      // console.log(`Minor position difference (${distance.toFixed(2)}) for player ${playerId}. Relying on interpolation.`);
+    }
+  }
+
+  /**
    * Update the player's position
    * @param {string} playerId - The player's ID
    * @param {object} position - The position {x, y, z}
@@ -186,12 +340,15 @@ class NetworkManager {
       this.positionBuffer[playerId].shift();
     }
     
-    // Trigger event for subscribers
-    this._triggerEvent('onPositionUpdated', playerId, position);
+    // Trigger event for local subscribers (e.g., UI updates)
+    // Avoid triggering the main 'onPositionUpdated' used for reconciliation here
+    // this._triggerEvent('onLocalPositionUpdated', playerId, position); // Example: If needed
     
     // Send to realtime manager when available
     if (this.realtimeManager) {
-      this.realtimeManager.sendPosition(playerId, position);
+      // This function name might need adjustment based on RealtimeManager's actual methods
+      // Assuming RealtimeManager sends the position update to Supabase
+      // this.realtimeManager.sendPosition(playerId, position); 
     }
   }
   
@@ -362,6 +519,11 @@ class NetworkManager {
         this.realtimeManager = null;
       }
       
+      // Clean up game queue manager
+      if (this.gameQueueManager) {
+        this.gameQueueManager.cleanup();
+      }
+      
       // First destroy the session in auth manager
       await this.authManager.destroySession();
       
@@ -438,21 +600,8 @@ class NetworkManager {
       
       // Set up event handlers
       this.realtimeManager.onPositionUpdate = (playerId, position, playerData, isTestPlayer) => {
-        // Skip updates for current player to avoid feedback loops
-        if (playerId === this.authManager.getCurrentUserId()) {
-          return;
-        }
-        
-        // Get the planet name from the player data
-        const playerPlanet = playerData.planet_name;
-        
-        console.log(`Received position update for ${isTestPlayer ? 'test' : ''} player ${playerId} on planet ${playerPlanet}`);
-
-        // Store the last known authoritative position from the server
-        this.lastServerPositions[playerId] = { ...position };
-        
-        // Trigger position update event for game to handle
-        this._triggerEvent('onPositionUpdated', playerId, position, isTestPlayer, playerPlanet);
+        // Process the server position update using the new logic
+        this._processServerPositionUpdate(playerId, position, playerData, isTestPlayer);
       };
 
       this.realtimeManager.onPlayerJoined = (playerId, playerData, isTestPlayer) => {

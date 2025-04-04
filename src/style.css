@@ -11,6 +11,13 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ----- Base Styles ----- */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 body, html {
   width: 100%;
   height: 100%;
@@ -31,27 +38,345 @@ body, html {
   display: block;
 }
 
-/* Status panel and connection indicators */
-#statusPanel {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  background-color: rgba(0, 0, 0, 0.6);
-  border-radius: 8px;
-  padding: 10px;
-  z-index: 100;
+/* ----- Button Styles ----- */
+.btn {
+  padding: 12px 24px;
+  font-size: 18px;
   color: white;
-  font-size: 14px;
-  display: flex;
-  flex-direction: column;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  z-index: 10;
 }
 
-.status-row {
+.btn-primary {
+  background-color: #4CAF50;
+}
+
+.btn-primary:hover {
+  background-color: #45a049;
+}
+
+.btn-secondary {
+  background-color: #333333;
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translate(-50%, 0);
+  z-index: 10;
+}
+
+.btn-secondary:hover {
+  background-color: #555555;
+}
+
+.btn-centered {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Keep #joinButton empty for JavaScript targeting only */
+#joinButton {
+}
+
+/* ----- Status Panel ----- */
+#statusPanel {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px 15px;
+  border-radius: 5px;
+  font-family: Arial, sans-serif;
+  z-index: 1000;
+  display: inline-block;
+  max-width: max-content;
+  white-space: nowrap;
+  transition: max-width 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+  overflow: hidden;
+  max-width: 40px; /* Collapsed by default */
+  cursor: pointer;
+}
+
+#statusPanel.expanded {
+  max-width: 300px; /* Expanded state */
+}
+
+#statusPanel .status-content {
+  opacity: 0; /* Hidden by default */
+  transition: opacity 0.3s ease;
+  pointer-events: none; /* Allow clicks to pass through to the panel */
+}
+
+#statusPanel.expanded .status-content {
+  opacity: 1; /* Visible when expanded */
+  pointer-events: auto; /* Re-enable interactions */
+}
+
+#statusPanel .status-item {
+  margin: 5px 0;
+  font-size: 14px;
+}
+
+#statusPanel .status-item span {
+  color: #4CAF50;
+  font-weight: bold;
+}
+
+#statusPanel .connection-status {
   display: flex;
-  align-items: center;
+  align-items: baseline;
+  gap: 5px;
+  position: relative;
+}
+
+#statusPanel .connection-status .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  z-index: 2;
+}
+
+#statusPanel .connection-status .dot.connected {
+  background-color: #4CAF50;
+}
+
+#statusPanel .connection-status .dot.disconnected {
+  background-color: #f44336;
+}
+
+#statusPanel .connection-status .dot.error {
+  background-color: #ff9800;
+}
+
+#statusPanel .user-id {
+  font-size: 12px;
+  color: #888;
+  margin-top: 2px;
+}
+
+/* ----- Debug Panel ----- */
+#debugPanel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px 15px;
+  border-radius: 5px;
+  font-family: Arial, sans-serif;
+  z-index: 1000;
+  display: none; /* Hidden by default */
+  max-width: max-content;
+}
+
+#debugPanel h3 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  color: #4CAF50;
+}
+
+#debugPanel button {
+  background-color: #2196F3;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 5px;
+}
+
+#debugPanel button:hover {
+  background-color: #1976D2;
+}
+
+#debugPanel .status-item {
+  margin: 5px 0;
+  font-size: 14px;
+}
+
+#debugPanel .status-item span {
+  color: #4CAF50;
+  font-weight: bold;
+}
+
+/* ----- Planet Population Indicators ----- */
+#planetIndicators {
+  position: fixed;
+  bottom: 80px; /* Position at bottom, leave space for the Back to Space button */
+  left: 0;
+  right: 0;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 60px; /* Increased gap to match planet spacing */
+  z-index: 1000;
+}
+
+.planet-indicator {
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px 15px;
+  border-radius: 5px;
+  text-align: center;
+  min-width: 120px;
+}
+
+.planet-name {
+  font-size: 18px;
+  font-weight: bold;
   margin-bottom: 5px;
 }
 
+/* Planet name colors will be set programmatically */
+.planet-name-earth {
+  color: #4CAF50; /* Green for Earth */
+}
+
+.planet-name-mars {
+  color: #FF5252; /* Red for Mars */
+}
+
+.planet-population {
+  font-size: 14px;
+}
+
+.planet-population span {
+  font-weight: bold;
+  font-size: 16px;
+}
+
+/* ----- Player Contributions Leaderboard ----- */
+#playerContributions {
+  position: fixed;
+  top: 100px; /* Position below the game timer */
+  right: 20px;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 12px;
+  border-radius: 5px;
+  font-family: Arial, sans-serif;
+  min-width: 250px;
+  max-width: 300px;
+  max-height: 70vh;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+#contributionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contribution-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.contribution-item:nth-child(1) {
+  background-color: rgba(255, 215, 0, 0.2); /* Gold for #1 */
+}
+
+.contribution-item:nth-child(2) {
+  background-color: rgba(192, 192, 192, 0.2); /* Silver for #2 */
+}
+
+.contribution-item:nth-child(3) {
+  background-color: rgba(205, 127, 50, 0.2); /* Bronze for #3 */
+}
+
+.player-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 180px;
+}
+
+.player-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.player-name {
+  font-weight: bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-clicks {
+  background-color: rgba(255, 255, 255, 0.2);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.player-name-current {
+  color: #4CAF50; /* Highlight current player */
+}
+
+/* ----- Rotate Device Message ----- */
+#rotateDevice {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.9);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  display: none; /* Hidden by default */
+}
+
+#rotateDevice img {
+  width: 150px;
+  height: auto;
+  margin-bottom: 20px;
+  animation: rotate 2s infinite ease-in-out;
+}
+
+#rotateDevice p {
+  color: white;
+  font-family: Arial, sans-serif;
+  font-size: 18px;
+  text-align: center;
+  padding: 0 20px;
+}
+
+@keyframes rotate {
+  0% { transform: rotate(-90deg); }
+  50% { transform: rotate(0deg); }
+  100% { transform: rotate(-90deg); }
+}
+
+@media screen and (max-width: 768px) and (orientation: portrait) {
+  #rotateDevice {
+    display: flex;
+  }
+}
+
+/* ----- Connection Status Dots ----- */
 .dot {
   width: 12px;
   height: 12px;
@@ -87,27 +412,23 @@ body, html {
   100% { opacity: 1; }
 }
 
-#joinButton {
-  position: absolute;
-  top: 75%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  padding: 12px 24px;
-  font-size: 18px;
-  background-color: #4CAF50;
+/* ----- Destroy Session Button ----- */
+#destroySession {
+  background-color: #e53935;
   color: white;
   border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  z-index: 10;
+  font-weight: bold;
+  transition: background-color 0.3s;
 }
 
-#joinButton:hover {
-  background-color: #45a049;
+#destroySession:hover {
+  background-color: #c62828;
 }
 
-/* Game styles are primarily defined in index.html for now */
-/* This CSS will be expanded as we develop the game further */
+#destroySession:disabled {
+  background-color: #bdbdbd;
+  cursor: not-allowed;
+}
 
 a {
   font-weight: 500;
@@ -174,40 +495,4 @@ button:focus-visible {
   button {
     background-color: #f9f9f9;
   }
-}
-
-#debugPanel {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  background-color: rgba(0, 0, 0, 0.7);
-  color: white;
-  padding: 10px;
-  border-radius: 5px;
-  z-index: 100;
-}
-
-#debugPanel button {
-  margin-top: 10px;
-  padding: 5px 10px;
-  cursor: pointer;
-  display: block;
-  width: 100%;
-}
-
-#destroySession {
-  background-color: #e53935;
-  color: white;
-  border: none;
-  font-weight: bold;
-  transition: background-color 0.3s;
-}
-
-#destroySession:hover {
-  background-color: #c62828;
-}
-
-#destroySession:disabled {
-  background-color: #bdbdbd;
-  cursor: not-allowed;
 }
