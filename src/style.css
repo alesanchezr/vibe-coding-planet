@@ -58,11 +58,8 @@ body, html {
 }
 
 .btn-secondary {
-  background-color: #333333;
+  background-color: inherit;
   position: absolute;
-  bottom: 30px;
-  left: 50%;
-  transform: translate(-50%, 0);
   z-index: 10;
 }
 
@@ -95,25 +92,31 @@ body, html {
   display: inline-block;
   max-width: max-content;
   white-space: nowrap;
-  transition: max-width 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+  transition: max-width 0.3s ease, padding 0.3s ease, opacity 0.3s ease, height 0.3s ease;
   overflow: hidden;
   max-width: 40px; /* Collapsed by default */
   cursor: pointer;
+  height: 40px; /* Fixed height when collapsed */
 }
 
 #statusPanel.expanded {
   max-width: 300px; /* Expanded state */
+  height: auto; /* Auto height when expanded */
 }
 
 #statusPanel .status-content {
   opacity: 0; /* Hidden by default */
   transition: opacity 0.3s ease;
   pointer-events: none; /* Allow clicks to pass through to the panel */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 #statusPanel.expanded .status-content {
   opacity: 1; /* Visible when expanded */
   pointer-events: auto; /* Re-enable interactions */
+  margin-left: 5px; /* Add a little spacing from the dot */
 }
 
 #statusPanel .status-item {
@@ -128,9 +131,10 @@ body, html {
 
 #statusPanel .connection-status {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 5px;
   position: relative;
+  height: 100%;
 }
 
 #statusPanel .connection-status .dot {
@@ -250,6 +254,35 @@ body, html {
   font-size: 16px;
 }
 
+/* Mobile styles for planet indicators */
+@media screen and (max-width: 768px) {
+  #planetIndicators {
+    bottom: 25px; /* Position lower on the screen for mobile */
+    flex-direction: row; /* Ensure horizontal layout */
+    flex-wrap: nowrap;
+    gap: 20px; /* Reduce gap on smaller screens */
+  }
+  
+  .planet-indicator {
+    padding: 8px 10px;
+    min-width: auto; /* Allow shrinking on small screens */
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  
+  .planet-name {
+    margin-bottom: 0; /* Remove bottom margin to keep on single line */
+    font-size: 16px;
+  }
+  
+  .planet-population {
+    font-size: 13px;
+  }
+}
+
 /* ----- Player Contributions Leaderboard ----- */
 #playerContributions {
   position: fixed;
@@ -331,6 +364,33 @@ body, html {
 
 .player-name-current {
   color: #4CAF50; /* Highlight current player */
+}
+
+/* Responsive styles for player contributions on small screens */
+@media screen and (max-width: 768px) {
+  #playerContributions {
+    min-width: 200px;
+    max-width: 250px;
+    padding: 10px;
+  }
+  
+  .player-icon {
+    width: 15px;
+    height: 15px;
+  }
+  
+  .player-name {
+    font-size: 13px;
+  }
+  
+  .player-info {
+    gap: 5px;
+    max-width: 150px;
+  }
+  
+  .contribution-item {
+    padding: 4px 6px;
+  }
 }
 
 /* ----- Rotate Device Message ----- */

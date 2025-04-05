@@ -168,6 +168,9 @@ export class Rocket extends GameObject {
     // Orient the whole rocket group to point away from the planet center
     this.alignWithPlanet();
     
+    // Create hit box for increased clickable area
+    this.createHitBox();
+    
     // Set the final position of the group
     this.mesh.position.copy(this.position);
     
@@ -175,6 +178,53 @@ export class Rocket extends GameObject {
     this.scene.add(this.mesh);
     
     console.log(`2-Stage Rocket mesh created at position (${this.position.x.toFixed(2)}, ${this.position.y.toFixed(2)}, ${this.position.z.toFixed(2)})`);
+  }
+  
+  /**
+   * Create a hitbox for the rocket to increase clickable area
+   * @private
+   */
+  createHitBox() {
+    // Calculate the total height and maximum radius of the rocket
+    const totalHeight = 4.0 * this.size; // Approximate total height of the rocket
+    const maxRadius = 1.0 * this.size;   // Max radius including fins
+    
+    // Create a larger hitbox cylinder for the rocket
+    const hitboxScale = 2.25; // Increased from 1.5 to 2.25 (50% larger)
+    const hitboxHeight = totalHeight * hitboxScale;
+    const hitboxRadius = maxRadius * hitboxScale;
+    
+    // Create a red material for debugging that's initially invisible
+    const hitboxMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff0000,
+      transparent: true,
+      opacity: 0.0,
+      wireframe: false, // Will be enabled when debugging is turned on
+    });
+    
+    // Create cylinder geometry for hitbox
+    const hitboxGeo = new THREE.CylinderGeometry(
+      hitboxRadius,
+      hitboxRadius,
+      hitboxHeight,
+      16
+    );
+    
+    // Create the hitbox mesh
+    const hitbox = new THREE.Mesh(hitboxGeo, hitboxMaterial);
+    hitbox.name = 'rocketHitbox';
+    
+    // Position the hitbox at the center of the rocket's height
+    hitbox.position.y = totalHeight / 2;
+    
+    // Copy all the userData to ensure clicks are properly detected
+    hitbox.userData = { ...this.mesh.userData };
+    hitbox.userData.isHitbox = true; // Add this flag for potential future filtering
+    
+    // Add to the mesh group
+    this.mesh.add(hitbox);
+    
+    console.log('Added hitbox to rocket for increased clickable area');
   }
   
   /**

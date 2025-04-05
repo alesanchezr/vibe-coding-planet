@@ -271,14 +271,17 @@ export class PlanetClickControls {
       while (potentialBuildable) {
           // Check if this object is marked as buildable in its userData
           if (potentialBuildable.userData && 
-              (potentialBuildable.userData.isRocket || potentialBuildable.userData.isBuildable)) {
+              (potentialBuildable.userData.isRocket || 
+               potentialBuildable.userData.isBuildable || 
+               potentialBuildable.userData.isHitbox)) {
               
               // Found a buildable part or the main group itself.
               // Now, ensure we get the TOP-LEVEL buildable group.
               let topLevelBuildable = potentialBuildable;
               while (topLevelBuildable.parent && 
                      topLevelBuildable.parent.userData && 
-                     (topLevelBuildable.parent.userData.isRocket || topLevelBuildable.parent.userData.isBuildable)) {
+                     (topLevelBuildable.parent.userData.isRocket || 
+                      topLevelBuildable.parent.userData.isBuildable)) {
                    // Keep going up as long as the parent is also marked as buildable.
                    // This handles nested structures and finds the outermost marked group.
                    topLevelBuildable = topLevelBuildable.parent;
@@ -675,21 +678,21 @@ export class PlanetClickControls {
   
   /**
    * Check if a point is near any buildable element
-   * @param {THREE.Vector3} position - The position to check
+   * @param {THREE.Vector3} position - Position to check
    * @param {number} threshold - Distance threshold
    * @returns {boolean} Whether the point is near any buildable
    * @private
    */
-  _isNearAnyBuildable(position, threshold = 2.0) {
+  _isNearAnyBuildable(position, threshold = 3.0) {  // Increased default threshold from 2.0 to 3.0
     // Find all buildable elements in the scene
     const buildableElements = [];
     
     // First check the clickable objects
     this.clickableObjects.forEach(obj => {
-      if ((obj.name && obj.name.includes('rocket')) || 
+      if ((obj.name && (obj.name.includes('rocket') || obj.name.includes('rocketHitbox'))) || 
           (obj.name && obj.name.includes('buildable')) ||
           (obj.userData && 
-            (obj.userData.isRocket || obj.userData.isBuildable))) {
+            (obj.userData.isRocket || obj.userData.isBuildable || obj.userData.isHitbox))) {
         buildableElements.push(obj);
       }
     });
@@ -697,10 +700,10 @@ export class PlanetClickControls {
     // If we don't find any buildable elements in clickable objects, search the whole scene
     if (buildableElements.length === 0) {
       this.scene.traverse(obj => {
-        if ((obj.name && obj.name.includes('rocket')) || 
+        if ((obj.name && (obj.name.includes('rocket') || obj.name.includes('rocketHitbox'))) || 
             (obj.name && obj.name.includes('buildable')) ||
             (obj.userData && 
-              (obj.userData.isRocket || obj.userData.isBuildable))) {
+              (obj.userData.isRocket || obj.userData.isBuildable || obj.userData.isHitbox))) {
           buildableElements.push(obj);
         }
       });

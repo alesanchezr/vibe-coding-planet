@@ -308,20 +308,29 @@ export class Game {
    */
   cameraFollowPlanet(planet) {
     if (this.camera && planet) {
-      // Position the camera to look at the planet from an angle
-      // Scale camera offset based on the new planet size (radius 15)
-      // Increase offset distance slightly to zoom out 20% (reverting previous zoom)
+      // Position the camera to view the planet from an angle with the planet in the left portion of screen
       const planetPos = planet.position;
-      const offsetScale = 1.0; // Scale factor (15 / 15) remains 1.0
-      const baseOffsetX = 5; // Reverted from 4
-      const baseOffsetY = 20; // Reverted from 17
-      const baseOffsetZ = 30; // Reverted from 25
+      const offsetScale = 0.9;
+      
+      // Further adjusted offsets to position planet in the left area (red square)
+      const baseOffsetX = 40; // Significantly increased to push planet far left
+      const baseOffsetY = 25; // Adjusted for height placement
+      const baseOffsetZ = 25;
+      
       this.camera.position.set(
         planetPos.x + baseOffsetX * offsetScale, 
         planetPos.y + baseOffsetY * offsetScale, 
         planetPos.z + baseOffsetZ * offsetScale
-      ); 
-      this.camera.lookAt(planetPos);
+      );
+      
+      // Look at a point to the right and slightly above the planet
+      // This shifts the planet to the left-bottom area of the view
+      const lookAtPoint = new THREE.Vector3(
+        planetPos.x + 25, // Look at a point further to the right
+        planetPos.y + 6,  // Look at a point below the planet center
+        planetPos.z       // Same depth
+      );
+      this.camera.lookAt(lookAtPoint);
       
       // Reset any lingering drag states in planet rotation controls
       if (this.planetSystem && this.planetSystem.planetControls) {
@@ -378,8 +387,16 @@ export class Game {
       // Hide all planets except the focused one
       if (this.planetSystem && this.planetSystem.planets) {
         this.planetSystem.planets.forEach(p => {
-          if (p.mesh) {
-            p.mesh.visible = p.name === planet.name;
+          if (p.name !== planet.name) {
+            // Hide non-focused planet and all its components
+            if (p.mesh) p.mesh.visible = false;
+            if (p.atmosphere) p.atmosphere.visible = false;
+            if (p.waterMesh) p.waterMesh.visible = false;
+          } else {
+            // Ensure focused planet and its components are visible
+            if (p.mesh) p.mesh.visible = true;
+            if (p.atmosphere) p.atmosphere.visible = true;
+            if (p.waterMesh) p.waterMesh.visible = true;
           }
         });
       }
@@ -463,9 +480,10 @@ export class Game {
       // Show all planets
       if (this.planetSystem && this.planetSystem.planets) {
         this.planetSystem.planets.forEach(p => {
-          if (p.mesh) {
-            p.mesh.visible = true;
-          }
+          // Make all planet components visible
+          if (p.mesh) p.mesh.visible = true;
+          if (p.atmosphere) p.atmosphere.visible = true;
+          if (p.waterMesh) p.waterMesh.visible = true;
         });
       }
       
@@ -551,11 +569,11 @@ export class Game {
           nameElement.className = `planet-name planet-name-${planetName}`;
           nameElement.textContent = planetName.charAt(0).toUpperCase() + planetName.slice(1);
           
-          // Create population element
+          // Create population element with count
           const populationElement = document.createElement('div');
           populationElement.className = 'planet-population';
           
-          // Add count span
+          // Add count and inhabitants name in separate spans for easier styling
           const countSpan = document.createElement('span');
           countSpan.id = `${planetName}Population`;
           countSpan.textContent = count;
@@ -564,6 +582,7 @@ export class Game {
           populationElement.appendChild(countSpan);
           populationElement.append(` ${inhabitants}`);
           
+          // Add elements to indicator
           indicator.appendChild(nameElement);
           indicator.appendChild(populationElement);
           
@@ -575,8 +594,51 @@ export class Game {
       // Show the indicators container
       container.style.display = 'flex';
       
+      // Check if we're on mobile and adjust for the mobile layout if needed
+      this._adjustPlanetIndicatorsForMobile();
+      
     } catch (error) {
       console.error('Error updating planet indicators:', error);
+    }
+  }
+  
+  /**
+   * Adjust planet indicators for mobile view
+   * @private
+   */
+  _adjustPlanetIndicatorsForMobile() {
+    const isMobile = window.innerWidth <= 768;
+    const container = document.getElementById('planetIndicators');
+    
+    if (!container) return;
+    
+    if (isMobile) {
+      // For mobile, make sure we're positioned at the bottom and using a single row
+      container.style.bottom = '25px';
+      container.style.flexDirection = 'row';
+      container.style.flexWrap = 'nowrap';
+      
+      // For very small screens, reduce the gap further
+      if (window.innerWidth <= 480) {
+        container.style.gap = '10px';
+      } else {
+        container.style.gap = '20px';
+      }
+      
+      // Make sure all indicators use the horizontal layout
+      const indicators = container.querySelectorAll('.planet-indicator');
+      indicators.forEach(indicator => {
+        indicator.style.display = 'flex';
+        indicator.style.flexDirection = 'row';
+        indicator.style.alignItems = 'center';
+        indicator.style.gap = '10px';
+        
+        // Remove bottom margin from planet name to keep on single line
+        const planetName = indicator.querySelector('.planet-name');
+        if (planetName) {
+          planetName.style.marginBottom = '0';
+        }
+      });
     }
   }
 
@@ -1117,6 +1179,9 @@ export class Game {
     if (this.planetSystem && this.planetSystem.planetControls) {
       this.planetSystem.planetControls.forEach(controls => controls.handleResize());
     }
+    
+    // Adjust planet indicators for mobile
+    this._adjustPlanetIndicatorsForMobile();
   }
 
   /**
@@ -3035,6 +3100,38 @@ export class Game {
     const panel = document.getElementById('playerContributions');
     if (panel) {
       panel.style.display = 'block';
+    }
+  }
+
+  /**
+   * Toggle visibility of buildable hitboxes for debugging
+   * @param {boolean} visible - Whether hitboxes should be visible
+   */
+  toggleHitboxVisibility(visible) {
+    // Set default value if not provided
+    const showHitboxes = visible !== undefined ? visible : true;
+    
+    // Find all hitboxes in the scene and toggle their visibility
+    if (this.scene) {
+      this.scene.traverse(object => {
+        if (object.userData && object.userData.isHitbox) {
+          object.visible = showHitboxes;
+          
+          // Also toggle wireframe mode if visible (makes it easier to see the actual model)
+          if (object.material) {
+            if (showHitboxes) {
+              // Make it semi-transparent and red in wireframe when visible
+              object.material.wireframe = true;
+              object.material.opacity = 0.3;
+            } else {
+              object.material.wireframe = false;
+              object.material.opacity = 0.0;
+            }
+          }
+        }
+      });
+      
+      console.log(`Buildable hitboxes ${showHitboxes ? 'shown' : 'hidden'} for debugging`);
     }
   }
 } 

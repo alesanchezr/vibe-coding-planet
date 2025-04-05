@@ -47,5 +47,16 @@ Got ideas? Found bugs? Want to make the planets more explodey?
 
 MIT - Go wild! 🎉
 
+## Debugging Hitboxes
+
+The buildable objects (like rockets) now have expanded hitboxes to make them easier to click. 
+To debug and visualize these hitboxes:
+
+1. Open the browser console
+2. Run `window.game.toggleHitboxVisibility(true)` to show hitboxes
+3. Run `window.game.toggleHitboxVisibility(false)` to hide hitboxes
+
+The hitboxes will appear as red wireframe cylinders around the buildable objects.
+
 ---
 *Remember: In space, no one can hear you click... but they can see your rocket coming!* 🌠
