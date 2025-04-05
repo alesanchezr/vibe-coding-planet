@@ -127,12 +127,12 @@ export class GameTimer {
    * Start the game timer
    */
   startGameTimer() {
-    if (this.isRunning) return;
+    if (this.isRunning && !this.inCooldown) return;
     
-    console.log('Game timer started');
+    console.log(`Game timer started with ${this.timeRemaining}s remaining`);
     this.isRunning = true;
     this.inCooldown = false;
-    this.timeRemaining = this.gameDuration;
+    // Don't reset timeRemaining if it was already set
     this.lastUpdate = Date.now();
     
     // Update UI with ACTIVE status
@@ -150,10 +150,10 @@ export class GameTimer {
   startCooldownTimer() {
     if (this.isRunning && this.inCooldown) return;
     
-    console.log('Cooldown timer started');
+    console.log(`Cooldown timer started with ${this.timeRemaining}s remaining`);
     this.isRunning = true;
     this.inCooldown = true;
-    this.timeRemaining = this.cooldownDuration;
+    // Don't reset timeRemaining if it was already set
     this.lastUpdate = Date.now();
     
     // Update UI with COOLDOWN status
@@ -267,7 +267,7 @@ export class GameTimer {
   }
   
   /**
-   * Get remaining time in seconds
+   * Get the current time remaining
    * @returns {number} Time remaining in seconds
    */
   getTimeRemaining() {
@@ -296,5 +296,56 @@ export class GameTimer {
     
     this.timerElement = null;
     this.timerLabelElement = null;
+  }
+  
+  /**
+   * Start the waiting timer countdown
+   * @param {number} remainingWaitTime - Remaining waiting time in seconds
+   */
+  startWaitingTimer(remainingWaitTime) {
+    if (this.isRunning && this.status === 'WAITING') return;
+    
+    console.log(`Waiting timer started with ${remainingWaitTime}s remaining until game starts`);
+    this.isRunning = true;
+    this.inCooldown = false;
+    this.timeRemaining = remainingWaitTime;
+    this.lastUpdate = Date.now();
+    
+    // Update UI with WAITING status but indicate the countdown
+    this.updateStatus('WAITING', '#2196F3'); // Blue for waiting
+    this.timerLabelElement.textContent = 'Waiting for players:';
+    this.timerElement.textContent = this._formatTime(this.timeRemaining);
+    this.timerElement.style.color = '#2196F3';
+    
+    // Start update loop
+    this._updateWaitingTimer();
+  }
+  
+  /**
+   * Update the waiting timer (internal recursive function)
+   * @private
+   */
+  _updateWaitingTimer() {
+    if (!this.isRunning || this.status !== 'WAITING') return;
+    
+    const now = Date.now();
+    const deltaTime = (now - this.lastUpdate) / 1000; // Convert to seconds
+    this.lastUpdate = now;
+    
+    // Update time remaining
+    this.timeRemaining -= deltaTime;
+    
+    // Check for time expired
+    if (this.timeRemaining <= 0) {
+      this.timeRemaining = 0;
+      this.timerElement.textContent = this._formatTime(0);
+      return; // Server will handle the transition to active state
+    }
+    
+    // Update UI with new time
+    this.timerElement.textContent = this._formatTime(this.timeRemaining);
+    
+    // Set up next frame update for countdown
+    requestAnimationFrame(() => this._updateWaitingTimer());
   }
 } 

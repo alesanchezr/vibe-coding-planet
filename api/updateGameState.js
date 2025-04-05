@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     
     // Create Supabase client with service role key for admin access
     const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.VITE_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
@@ -26,7 +26,9 @@ export default async function handler(req, res) {
 
     if (!currentGame) {
       console.log('No active game found, creating a new one');
-      // Create a new game if none exists
+      const now = new Date();
+      
+      // Create a new game if none exists - with explicit started_at
       const { data: newGame, error: createError } = await supabase.rpc('create_new_game', {
         p_cooldown_duration: 120,
         p_waiting_duration: 60,
@@ -36,6 +38,21 @@ export default async function handler(req, res) {
 
       if (createError) {
         throw new Error(`Error creating new game: ${createError.message}`);
+      }
+      
+      // Explicitly set started_at for the new game
+      if (newGame && newGame.id) {
+        const { error: updateError } = await supabase
+          .from('game_queue')
+          .update({ started_at: now })
+          .eq('id', newGame.id);
+          
+        if (updateError) {
+          console.error('Error setting started_at timestamp:', updateError);
+        } else {
+          console.log('Set started_at timestamp for new game:', now.toISOString());
+          newGame.started_at = now;
+        }
       }
 
       return res.status(200).json({ 
@@ -54,15 +71,25 @@ export default async function handler(req, res) {
     let updateData = {};
     let shouldCreateNewGame = false;
 
+    // Check if started_at is missing but should exist - fix it
+    if (!currentGame.started_at && (currentState === 'waiting_for_players' || currentState === 'active')) {
+      updateData.started_at = now;
+      console.log('Setting missing started_at timestamp');
+    }
+
     // Handle state transitions based on the current state
     switch (currentState) {
       case 'waiting_for_players':
-        const waitingSince = new Date(currentGame.created_at);
+        const waitingSince = new Date(currentGame.started_at || currentGame.created_at);
         const waitingDuration = currentGame.waiting_duration * 1000; // convert to ms
         
         if (now - waitingSince >= waitingDuration) {
           newState = 'active';
-          updateData = { current_state: newState, started_at: now };
+          updateData.current_state = newState;
+          // Don't overwrite started_at if it exists since we're continuing the same game
+          if (!currentGame.started_at) {
+            updateData.started_at = now;
+          }
           console.log('Transitioning to active state');
         }
         break;
@@ -73,18 +100,25 @@ export default async function handler(req, res) {
         
         if (now - activeSince >= activeDuration) {
           newState = 'ended';
-          updateData = { current_state: newState, ended_at: now };
+          updateData.current_state = newState;
+          updateData.ended_at = now;
           console.log('Transitioning to ended state (time expired)');
         }
         break;
         
       case 'cooldown':
-        const cooldownSince = new Date(currentGame.ended_at);
+        // Check for missing ended_at timestamp
+        if (!currentGame.ended_at) {
+          updateData.ended_at = now;
+          console.log('Setting missing ended_at timestamp');
+        }
+        
+        const cooldownSince = new Date(currentGame.ended_at || now);
         const cooldownDuration = currentGame.cooldown_duration * 1000; // convert to ms
         
         if (now - cooldownSince >= cooldownDuration) {
           newState = 'ended';
-          updateData = { current_state: newState };
+          updateData.current_state = newState;
           shouldCreateNewGame = true;
           console.log('Cooldown period ended, transitioning to ended state');
         }
@@ -93,7 +127,8 @@ export default async function handler(req, res) {
       case 'victory':
         // Victory should quickly transition to cooldown
         newState = 'cooldown';
-        updateData = { current_state: newState, ended_at: now };
+        updateData.current_state = newState;
+        updateData.ended_at = now;
         console.log('Transitioning from victory to cooldown');
         break;
     }
@@ -122,6 +157,21 @@ export default async function handler(req, res) {
 
         if (createError) {
           throw new Error(`Error creating new game: ${createError.message}`);
+        }
+        
+        // Explicitly set started_at for the new game
+        if (newGame && newGame.id) {
+          const { error: updateError } = await supabase
+            .from('game_queue')
+            .update({ started_at: now })
+            .eq('id', newGame.id);
+            
+          if (updateError) {
+            console.error('Error setting started_at timestamp for new game:', updateError);
+          } else {
+            console.log('Set started_at timestamp for new game:', now.toISOString());
+            newGame.started_at = now;
+          }
         }
         
         console.log('New game created after cooldown', newGame);

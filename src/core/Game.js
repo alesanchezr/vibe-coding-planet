@@ -634,7 +634,81 @@ export class Game {
       this.handleServerPositionUpdate(playerId, serverPosition, isTestPlayer, planetName);
     });
 
+    // Listen for game state changes from the NetworkManager
+    networkManager.on('onGameStateChanged', (gameData) => {
+      this.handleGameStateChange(gameData);
+    });
+
     console.log('Event listeners registered');
+  }
+  
+  /**
+   * Handle game state changes from the NetworkManager
+   * @param {Object} gameData - The game state data
+   * @private
+   */
+  handleGameStateChange(gameData) {
+    console.log('Handling game state change:', gameData);
+    
+    // Update local game state
+    this.gameState = gameData.current_state;
+    
+    // Update game timer based on state
+    if (this.gameTimer) {
+      const remainingTime = networkManager.getRemainingTime();
+      console.log(`Game state: ${this.gameState}, remaining time: ${remainingTime}s`);
+      
+      // Stop any running timers before changing state
+      this.gameTimer.stopTimer();
+      
+      // Set the correct time remaining
+      this.gameTimer.timeRemaining = remainingTime > 0 ? remainingTime : 0;
+      
+      switch (gameData.current_state) {
+        case 'waiting_for_players':
+          // Instead of static waiting status, show a waiting countdown
+          this.gameTimer.startWaitingTimer(remainingTime);
+          this.buildingEnabled = false;
+          break;
+          
+        case 'active':
+          // Don't just set status, actually start the timer with remaining time
+          this.gameTimer.startGameTimer();
+          this.buildingEnabled = true;
+          
+          // Reset last minute warning flag if needed
+          if (remainingTime > 60) {
+            this._lastMinuteWarningShown = false;
+          }
+          break;
+          
+        case 'cooldown':
+          // Start cooldown timer with the remaining time
+          this.gameTimer.startCooldownTimer();
+          this.buildingEnabled = false;
+          break;
+          
+        case 'victory':
+          this.gameTimer.setVictoryStatus();
+          this.buildingEnabled = false;
+          
+          // Display victory sequence if winner_planet is set
+          if (gameData.winner_planet) {
+            this.handleVictory(gameData.winner_planet);
+          }
+          break;
+          
+        case 'ended':
+          this.gameTimer.setEndedStatus();
+          this.buildingEnabled = false;
+          break;
+      }
+      
+      // Update progress bars visibility based on whether building is enabled
+      this.updateProgressBarsVisibility();
+    }
+    
+    console.log(`Game state updated to: ${this.gameState}, building enabled: ${this.buildingEnabled}`);
   }
   
   /**
@@ -680,21 +754,7 @@ export class Game {
         }
       }
 
-      // Check if we're in a state that allows joining
-      if (this.gameState === 'active' || this.gameState === 'ended') {
-        console.log(`Cannot join in game state: ${this.gameState}`);
-        
-        // Display error message
-        const message = this.gameState === 'active' 
-          ? 'Game is already in progress' 
-          : 'Game has ended';
-        
-        // TODO: Add visual error message
-        
-        return;
-      }
-
-      // Check if player is already in the game
+      // FIRST, check if player is already in the game (before checking game state)
       const currentPlanet = networkManager.playerManager.currentPlanet;
       console.log("Current planet", currentPlanet);
       if (currentPlanet) {
@@ -712,12 +772,57 @@ export class Game {
           // Ensure last_active is updated
           await networkManager.updateLastActive();
 
-          
           joinButton.style.display = 'none';
           
           console.log(`Re-joining ${currentPlanet} mission, focused camera on player's planet`);
           return;
         }
+      }
+
+      // THEN, check if we're in a state that allows new players to join
+      if (this.gameState === 'active' || this.gameState === 'ended') {
+        console.log(`Cannot join in game state: ${this.gameState}`);
+        
+        // Hide the join button
+        joinButton.style.display = 'none';
+        
+        // Create message container in the same area
+        const messageContainer = document.createElement('div');
+        messageContainer.id = 'joinMessageContainer';
+        messageContainer.style.position = 'fixed';
+        messageContainer.style.bottom = '20px';
+        messageContainer.style.left = '50%';
+        messageContainer.style.transform = 'translateX(-50%)';
+        messageContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        messageContainer.style.color = 'white';
+        messageContainer.style.padding = '15px';
+        messageContainer.style.borderRadius = '5px';
+        messageContainer.style.maxWidth = '80%';
+        messageContainer.style.textAlign = 'center';
+        messageContainer.style.zIndex = '1000';
+        messageContainer.style.fontFamily = 'Arial, sans-serif';
+        
+        // Add message content
+        messageContainer.textContent = this.gameState === 'active' 
+          ? 'You will be able to join the next game that starts soon, you are welcome to watch the current planet obliteration'
+          : 'The current game has ended. A new game will start soon!';
+        
+        // Add the message to the document body
+        document.body.appendChild(messageContainer);
+        
+        // Remove the message after 10 seconds
+        setTimeout(() => {
+          if (messageContainer.parentNode) {
+            messageContainer.parentNode.removeChild(messageContainer);
+            
+            // Show the button again if we're in a joinable state now
+            if (this.gameState !== 'active' && this.gameState !== 'ended') {
+              joinButton.style.display = 'block';
+            }
+          }
+        }, 10000);
+        
+        return;
       }
 
       // New join flow - proceed with assignment if in waiting_for_players state
@@ -1348,20 +1453,53 @@ export class Game {
       // Then load all active players
       this.loadActivePlayers();
       
-      // Set initial game state - waiting for players
-      this.gameState = 'waiting_for_players';
-      this.buildingEnabled = false;
-      
-      // Update timer status to waiting
-      if (this.gameTimer) {
-        this.gameTimer.setWaitingStatus();
-      }
+      // Fetch and apply the current game state from the server
+      await this.syncGameStateFromServer();
       
       // Force an update and render after loading players
       this.update();
       this.render();
     } catch (error) {
       console.error('Failed to initialize players:', error);
+    }
+  }
+  
+  /**
+   * Fetch and apply the current game state from the server
+   * @private
+   */
+  async syncGameStateFromServer() {
+    try {
+      // Get current game data from network manager
+      const currentGameState = networkManager.getCurrentGameState();
+      const remainingTime = networkManager.getRemainingTime();
+      const currentGame = networkManager.gameQueueManager.currentGame;
+      
+      console.log('Syncing game state from server:', { currentGameState, remainingTime, currentGame });
+      
+      if (currentGame) {
+        // Apply the game state directly
+        this.handleGameStateChange(currentGame);
+      } else {
+        // Default to waiting state if no game is found
+        this.gameState = 'waiting_for_players';
+        this.buildingEnabled = false;
+        
+        // Update timer status to waiting
+        if (this.gameTimer) {
+          this.gameTimer.setWaitingStatus();
+        }
+      }
+    } catch (error) {
+      console.error('Failed to sync game state from server:', error);
+      
+      // Fall back to waiting state
+      this.gameState = 'waiting_for_players';
+      this.buildingEnabled = false;
+      
+      if (this.gameTimer) {
+        this.gameTimer.setWaitingStatus();
+      }
     }
   }
 

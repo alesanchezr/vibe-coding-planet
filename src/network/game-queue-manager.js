@@ -328,15 +328,24 @@ class GameQueueManager {
     const now = new Date();
     const state = this.currentGame.current_state;
     
-    // For waiting and active states, use started_at
-    if (state === 'waiting_for_players' || state === 'active') {
+    // For waiting state, use created_at
+    if (state === 'waiting_for_players') {
+      const createdAt = new Date(this.currentGame.created_at);
+      const duration = this.currentGame.waiting_duration;
+      
+      const endTime = new Date(createdAt.getTime() + (duration * 1000));
+      const remainingMs = endTime - now;
+      
+      return Math.max(0, Math.floor(remainingMs / 1000));
+    }
+    
+    // For active state, use started_at
+    if (state === 'active') {
       const startedAt = this.currentGame.started_at 
         ? new Date(this.currentGame.started_at) 
         : new Date(this.currentGame.created_at);
       
-      const duration = state === 'waiting_for_players'
-        ? this.currentGame.waiting_duration
-        : this.currentGame.active_duration;
+      const duration = this.currentGame.active_duration;
       
       const endTime = new Date(startedAt.getTime() + (duration * 1000));
       const remainingMs = endTime - now;
@@ -346,7 +355,7 @@ class GameQueueManager {
     
     // For cooldown state, use ended_at
     if (state === 'cooldown') {
-      const endedAt = new Date(this.currentGame.ended_at);
+      const endedAt = new Date(this.currentGame.ended_at || now);
       const cooldownEndTime = new Date(endedAt.getTime() + (this.currentGame.cooldown_duration * 1000));
       const remainingMs = cooldownEndTime - now;
       
