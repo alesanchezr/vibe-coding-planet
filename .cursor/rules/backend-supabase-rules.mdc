@@ -3,11 +3,7 @@ description:
 globs: **/src/backend/*.js,src/utils/uuid-generator.js,src/utils/cookie.helper.js,src/utils/throttle.js
 alwaysApply: false
 ---
- ---
-description: Rules for Supabase backend integration in Planet Clicker Wars
-globs: **/src/backend/*.js,**/src/utils/*.js,**/*.js
-alwaysApply: true
----
+
 # Backend Supabase Integration Rules
 
 ## Description
