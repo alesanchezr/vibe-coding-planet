@@ -1,13 +1,9 @@
 ---
-description: 
+description: Rules for database schema and SQL functions in Planet Clicker Wars
 globs: **/db/*.sql,**/migrations/*.sql,**/*.sql
 alwaysApply: false
 ---
- ---
-description: Rules for database schema and SQL functions in Planet Clicker Wars
-globs: **/db/*.sql,**/migrations/*.sql,**/*.sql
-alwaysApply: true
----
+
 # Database Schema Rules
 
 ## Description
